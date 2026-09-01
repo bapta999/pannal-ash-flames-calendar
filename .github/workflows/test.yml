@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install requests
-        run: pip install requests
+      - name: Install FullTime API
+        run: pip install full-time-api
 
       - name: Run test
         run: python generate_calendar.py
