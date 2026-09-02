@@ -1,10 +1,15 @@
-name: Test FA connection
+name: Build Pannal Ash Flames Calendar
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+permissions:
+  contents: write
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,8 +21,17 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install FullTime API
-        run: pip install full-time-api
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
 
-      - name: Run test
+      - name: Generate calendar
         run: python generate_calendar.py
+
+      - name: Commit calendar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/pannal-ash-flames.ics
+          git diff --cached --quiet || git commit -m "Update Pannal Ash Flames calendar"
+          git push
