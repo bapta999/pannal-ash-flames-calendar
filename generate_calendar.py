@@ -1,251 +1,168 @@
 import requests
-from datetime import datetime
 from pathlib import Path
 import re
-import hashlib
 
 TEAM_URL = "https://fulltime.thefa.com/displayTeam.html?id=101016902"
-OUTPUT = Path("docs/pannal-ash-flames.ics")
 
-# FA Full-Time can block GitHub's IP addresses,
-# so use Jina Reader as a proxy.
+# Use Jina Reader to get the FA page through a proxy.
 URL = "https://r.jina.ai/" + TEAM_URL
 
-print("========================================")
-print("Pannal Ash U14 Girls Flames Calendar")
-print("========================================")
-print(f"Fetching: {TEAM_URL}")
+print("=" * 60)
+print("PANNAL ASH U14 GIRLS FLAMES - FA PAGE DIAGNOSTIC")
+print("=" * 60)
 print()
-
-# ---------------------------------------------------------
-# Download the FA Full-Time page
-# ---------------------------------------------------------
+print("Fetching FA Full-Time page...")
+print(URL)
+print()
 
 try:
     response = requests.get(
         URL,
         timeout=60,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers={"User-Agent": "Mozilla/5.0"}
     )
     response.raise_for_status()
 except Exception as e:
-    print("ERROR fetching FA Full-Time page:")
+    print("ERROR:")
     print(e)
     raise
 
 text = response.text
 
+print("SUCCESS")
 print(f"HTTP status: {response.status_code}")
-print(f"Downloaded characters: {len(text)}")
+print(f"Characters downloaded: {len(text)}")
 print()
 
 # ---------------------------------------------------------
-# Show anything containing "Pannal Ash"
-# This helps us see exactly how FA Full-Time is returning
-# the team information.
+# 1. Look for anything mentioning Pannal / Flames
 # ---------------------------------------------------------
 
-print("Searching downloaded page for Pannal Ash...")
-print("----------------------------------------")
+print("=" * 60)
+print("LINES CONTAINING 'PANNAL' OR 'FLAMES'")
+print("=" * 60)
 
-pannal_lines = []
+found_team_lines = []
 
-for line in text.splitlines():
-    if "pannal" in line.lower():
-        clean_line = " ".join(line.split())
-        pannal_lines.append(clean_line)
-        print(clean_line[:500])
-
-print("----------------------------------------")
-print(f"Lines containing Pannal: {len(pannal_lines)}")
-print()
-
-# Save the complete downloaded page for debugging.
-debug_file = Path("fa-debug.txt")
-debug_file.write_text(text, encoding="utf-8")
-
-print(f"Saved downloaded FA page to: {debug_file}")
-print()
-
-# ---------------------------------------------------------
-# Look for lines that appear to contain fixtures.
-# ---------------------------------------------------------
-
-print("Looking for potential fixture lines...")
-print("----------------------------------------")
-
-lines_with_fixtures = []
-
-for line in text.splitlines():
-    clean_line = " ".join(line.split())
+for line_number, line in enumerate(text.splitlines(), 1):
+    clean = " ".join(line.split())
 
     if (
-        re.search(r"\d{2}/\d{2}/\d{2}", clean_line)
-        and
-        re.search(r"\bv\b", clean_line, re.IGNORECASE)
+        "pannal" in clean.lower()
+        or
+        "flames" in clean.lower()
     ):
-        lines_with_fixtures.append(clean_line)
-        print(clean_line[:500])
+        found_team_lines.append((line_number, clean))
 
-print("----------------------------------------")
-print(f"Potential fixture lines found: {len(lines_with_fixtures)}")
+for line_number, clean in found_team_lines:
+    print(f"{line_number}: {clean[:1000]}")
+
+print()
+print(f"Number of matching lines: {len(found_team_lines)}")
 print()
 
 # ---------------------------------------------------------
-# Extract fixtures.
-#
-# We deliberately do NOT restrict the venue to a fixed list.
+# 2. Look for dates
 # ---------------------------------------------------------
 
-pattern = re.compile(
-    r"(\d{2}/\d{2}/\d{2})\s+"
-    r"(\d{1,2}:\d{2})\s+"
-    r"(.+?)\s+"
-    r"\bv\b\s+"
-    r"(.+?)(?=\s+\d{2}/\d{2}/\d{2}|\s*$)",
-    re.IGNORECASE
-)
+print("=" * 60)
+print("LINES CONTAINING DATES")
+print("=" * 60)
 
-matches = pattern.findall(text)
+date_lines = []
 
-print(f"Regex fixture matches: {len(matches)}")
+for line_number, line in enumerate(text.splitlines(), 1):
+    clean = " ".join(line.split())
+
+    if re.search(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b", clean):
+        date_lines.append((line_number, clean))
+
+for line_number, clean in date_lines[:100]:
+    print(f"{line_number}: {clean[:1000]}")
+
+print()
+print(f"Number of lines containing dates: {len(date_lines)}")
 print()
 
 # ---------------------------------------------------------
-# Turn matches into calendar events.
+# 3. Look for common football fixture terminology
 # ---------------------------------------------------------
 
-events = []
+print("=" * 60)
+print("LINES CONTAINING FIXTURE-RELATED WORDS")
+print("=" * 60)
 
-for date, time, home, away in matches:
-
-    home = " ".join(home.split()).strip()
-    away = " ".join(away.split()).strip()
-
-    try:
-        dt = datetime.strptime(
-            f"{date} {time}",
-            "%d/%m/%y %H:%M"
-        )
-    except ValueError:
-        continue
-
-    # Only keep fixtures involving the Flames.
-    if (
-        "pannal ash jfc u14 girls flames" not in home.lower()
-        and
-        "pannal ash jfc u14 girls flames" not in away.lower()
-    ):
-        continue
-
-    summary = f"{home} v {away}"
-
-    events.append((dt, summary))
-
-# Remove duplicates.
-events = list(dict.fromkeys(events))
-
-# Sort by date/time.
-events.sort()
-
-# ---------------------------------------------------------
-# Display the fixtures we found.
-# ---------------------------------------------------------
-
-print("========================================")
-print(f"Flames fixtures identified: {len(events)}")
-print("========================================")
-
-for dt, summary in events:
-    print(
-        f"{dt.strftime('%d/%m/%Y %H:%M')} - {summary}"
-    )
-
-print()
-
-# ---------------------------------------------------------
-# Create the calendar.
-# ---------------------------------------------------------
-
-OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-
-lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Pannal Ash JFC//U14 Girls Flames//EN",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    "X-WR-CALNAME:Pannal Ash U14 Girls Flames",
-    "X-WR-TIMEZONE:Europe/London",
+fixture_words = [
+    "fixture",
+    "fixtures",
+    "home",
+    "away",
+    "kick off",
+    "kickoff",
+    "venue",
+    "result",
+    "match",
 ]
 
-for dt, summary in events:
+fixture_lines = []
 
-    # Create a stable UID for each fixture.
-    uid_source = f"{dt.isoformat()}|{summary}"
+for line_number, line in enumerate(text.splitlines(), 1):
+    clean = " ".join(line.split())
 
-    uid_hash = hashlib.sha256(
-        uid_source.encode("utf-8")
-    ).hexdigest()[:16]
+    if any(word in clean.lower() for word in fixture_words):
+        fixture_lines.append((line_number, clean))
 
-    uid = f"{uid_hash}@pannal-ash-flames"
+for line_number, clean in fixture_lines[:150]:
+    print(f"{line_number}: {clean[:1000]}")
 
-    # Escape characters that have special meaning in iCalendar.
-    safe_summary = (
-        summary
-        .replace("\\", "\\\\")
-        .replace(";", "\\;")
-        .replace(",", "\\,")
-    )
-
-    lines.extend([
-        "BEGIN:VEVENT",
-        f"UID:{uid}",
-        f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}",
-        f"DTSTART;TZID=Europe/London:{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/London:{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"SUMMARY:{safe_summary}",
-        "DESCRIPTION:Pannal Ash JFC U14 Girls Flames fixture",
-        "END:VEVENT",
-    ])
-
-lines.append("END:VCALENDAR")
-
-# ---------------------------------------------------------
-# IMPORTANT:
-# Actually write the calendar file.
-# ---------------------------------------------------------
-
-OUTPUT.write_text(
-    "\r\n".join(lines) + "\r\n",
-    encoding="utf-8"
-)
-
-print("========================================")
-print("Calendar generated successfully")
-print("========================================")
-print(f"Events written: {len(events)}")
-print(f"Output file: {OUTPUT}")
-print(f"Output size: {OUTPUT.stat().st_size} bytes")
+print()
+print(f"Number of fixture-related lines: {len(fixture_lines)}")
 print()
 
-if len(events) == 0:
+# ---------------------------------------------------------
+# 4. Look for "v" or "vs" matches
+# ---------------------------------------------------------
 
-    print("WARNING: ZERO FLAMES FIXTURES WERE FOUND.")
-    print()
-    print(
-        "The downloaded FA page has been saved as "
-        "fa-debug.txt."
-    )
-    print(
-        "The Pannal Ash lines printed above will help "
-        "us determine the correct format."
-    )
+print("=" * 60)
+print("LINES CONTAINING ' V ' OR ' VS '")
+print("=" * 60)
 
-else:
+versus_lines = []
 
-    print(
-        "SUCCESS: Fixtures have been added to the calendar."
-    )
+for line_number, line in enumerate(text.splitlines(), 1):
+    clean = " ".join(line.split())
+
+    if (
+        re.search(r"\s+v\s+", clean, re.IGNORECASE)
+        or
+        re.search(r"\s+vs\.?\s+", clean, re.IGNORECASE)
+    ):
+        versus_lines.append((line_number, clean))
+
+for line_number, clean in versus_lines[:150]:
+    print(f"{line_number}: {clean[:1000]}")
+
+print()
+print(f"Number of v/vs lines: {len(versus_lines)}")
+print()
+
+# ---------------------------------------------------------
+# 5. Print the first 200 lines of the actual response.
+# ---------------------------------------------------------
+
+print("=" * 60)
+print("FIRST 200 LINES OF ACTUAL FA RESPONSE")
+print("=" * 60)
+
+all_lines = text.splitlines()
+
+for number, line in enumerate(all_lines[:200], 1):
+    clean = " ".join(line.split())
+
+    if clean:
+        print(f"{number}: {clean[:1000]}")
+
+print()
+print("=" * 60)
+print("END OF DIAGNOSTIC")
+print("=" * 60)
