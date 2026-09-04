@@ -39,10 +39,11 @@ print(f"Downloaded characters: {len(text)}")
 print()
 
 # Save a copy of the downloaded page so we can inspect it if necessary.
-debug_file = Path("docs/fa-debug.txt")
+debug_file = Path("fa-debug.txt")
 debug_file.write_text(text, encoding="utf-8")
 
 print(f"Saved downloaded FA page to: {debug_file}")
+
 print()
 
 # ---------------------------------------------------------
