@@ -66,10 +66,46 @@ print("Result page characters downloaded:", len(results_text))
 
 
 # ------------------------------------------------------------
+# TEMPORARY DIAGNOSTIC
+#
+# Show the actual score rows found on the Pannal results page.
+# This lets us see exactly how Full-Time is formatting the
+# Pannal results before we change the parser.
+# ------------------------------------------------------------
+
+print()
+print("SEARCHING RESULTS PAGE FOR SCORES...")
+
+score_found = False
+
+for score_match in re.finditer(
+    r'\[\s*\d+\s*[-–]\s*\d+\s*\]',
+    results_text
+):
+
+    score_found = True
+
+    position = score_match.start()
+
+    print()
+    print("FOUND SCORE:")
+    print(
+        results_text[
+            max(0, position - 800):
+            position + 800
+        ]
+    )
+
+if not score_found:
+    print("No bracketed score links found.")
+
+
+# ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
 
 def clean_name(value):
+
     value = re.sub(
         r'!\[Image\s*\d*\s*:\s*([^\]]+)\]\([^)]*\)',
         r'\1',
@@ -99,11 +135,9 @@ def clean_name(value):
 
 
 def normalise_team_name(name):
+
     name = clean_name(name)
 
-    # Full-Time can sometimes display the team name differently.
-    # We only normalise the Flames name here so that "Flashes"
-    # is never accidentally treated as our team.
     if re.search(
         r'Pannal Ash JFC U14 Girls Flames',
         name,
@@ -115,17 +149,23 @@ def normalise_team_name(name):
 
 
 def is_our_team(name):
-    return normalise_team_name(name).lower() == FLAMES.lower()
+
+    return (
+        normalise_team_name(name).lower()
+        == FLAMES.lower()
+    )
 
 
 def parse_datetime(date_text, time_text):
 
     for fmt in ("%d/%m/%y %H:%M", "%d/%m/%Y %H:%M"):
+
         try:
             return datetime.strptime(
                 f"{date_text} {time_text}",
                 fmt
             )
+
         except ValueError:
             pass
 
@@ -133,6 +173,7 @@ def parse_datetime(date_text, time_text):
 
 
 def parse_date_only(line):
+
     match = re.search(
         r'(\d{2}/\d{2}/\d{2,4})',
         line
@@ -145,6 +186,7 @@ def parse_date_only(line):
 
 
 def find_fixture_url(line):
+
     match = re.search(
         r'https://fulltime\.thefa\.com/'
         r'(?:displayFixture|displayCountyFixture)\.html'
@@ -158,8 +200,7 @@ def find_fixture_url(line):
 # ------------------------------------------------------------
 # Find fixtures from the team page
 #
-# This deliberately retains the existing working Pannal
-# fixture parser.
+# This is the existing working Pannal fixture parser.
 # ------------------------------------------------------------
 
 fixture_pattern = re.compile(
@@ -177,8 +218,9 @@ for match in fixture_pattern.finditer(text):
     time_text = match.group(2)
     block = match.group(3)
 
-    # Normal Full-Time fixtures use displayFixture.html.
+    # Normal fixtures use displayFixture.html.
     # Cup fixtures can use displayCountyFixture.html.
+
     team_links = re.findall(
         r"\[([^\]]+)\]\(\s*"
         r"(https://fulltime\.thefa\.com/"
@@ -190,18 +232,17 @@ for match in fixture_pattern.finditer(text):
     if len(team_links) < 2:
         continue
 
-    home = normalise_team_name(team_links[0][0].strip())
+    home = normalise_team_name(
+        team_links[0][0].strip()
+    )
+
     fixture_url = team_links[0][1].strip()
 
-    away = normalise_team_name(team_links[1][0].strip())
+    away = normalise_team_name(
+        team_links[1][0].strip()
+    )
 
     # We only want fixtures involving the FLAMES.
-    #
-    # This deliberately excludes:
-    # Pannal Ash JFC U14 Girls Flashes v Other Team
-    #
-    # But includes:
-    # Pannal Ash JFC U14 Girls Flashes v Pannal Ash JFC U14 Girls Flames
 
     if not is_our_team(home) and not is_our_team(away):
         continue
@@ -219,17 +260,6 @@ for match in fixture_pattern.finditer(text):
 
 # ------------------------------------------------------------
 # Parse completed results
-#
-# The results page has lines like:
-#
-# L 05/09/26[Pannal Ash JFC U14 Girls Flames](...)
-# ![Image ...](...)
-# [3 - 1](...)
-# ![Image ...](...)
-# [OPPONENT](...)
-#
-# We identify the score and use the normal links immediately
-# around it to obtain the two team names.
 # ------------------------------------------------------------
 
 def parse_results(results_text):
@@ -243,7 +273,8 @@ def parse_results(results_text):
         if not date_text:
             continue
 
-        # Find a numeric score.
+        # Find a numeric score anywhere in the line.
+
         score_match = re.search(
             r'(\d+)\s*[-–]\s*(\d+)',
             line
@@ -255,19 +286,8 @@ def parse_results(results_text):
         home = ""
         away = ""
 
-        # Get all normal Markdown links.
-        links = re.findall(
-            r'\[([^\]]+)\]\('
-            r'(https://fulltime\.thefa\.com/'
-            r'(?:displayFixture|displayCountyFixture)\.html'
-            r'\?id=\d+[^)]*)'
-            r'\)',
-            line
-        )
+        # Find the score link.
 
-        # The score itself is also a Markdown link, so find the
-        # position of the score link and use the normal team
-        # links immediately before and after it.
         score_link_match = re.search(
             r'\[\s*\d+\s*[-–]\s*\d+\s*\]\(',
             line
@@ -300,8 +320,8 @@ def parse_results(results_text):
             if after_links:
                 away = after_links[0]
 
-        # Fallback to image alt text if the surrounding links
-        # aren't available.
+        # Fallback to image alt text.
+
         if not home or not away:
 
             image_names = re.findall(
@@ -321,6 +341,7 @@ def parse_results(results_text):
             ]
 
             if len(image_names) >= 2:
+
                 home = image_names[0]
                 away = image_names[1]
 
@@ -333,8 +354,13 @@ def parse_results(results_text):
         if not is_our_team(home) and not is_our_team(away):
             continue
 
-        home_score = int(score_match.group(1))
-        away_score = int(score_match.group(2))
+        home_score = int(
+            score_match.group(1)
+        )
+
+        away_score = int(
+            score_match.group(2)
+        )
 
         fixture_url = find_fixture_url(line)
 
@@ -355,7 +381,7 @@ results = parse_results(results_text)
 
 
 # ------------------------------------------------------------
-# Remove duplicates using fixture URL where available
+# Remove duplicate fixtures
 # ------------------------------------------------------------
 
 unique = {}
@@ -396,11 +422,7 @@ results = list(unique_results.values())
 
 
 # ------------------------------------------------------------
-# Merge results with fixtures
-#
-# If a fixture now has a result, the result replaces the
-# upcoming fixture so that the calendar doesn't contain
-# both versions of the same match.
+# Remove future fixture versions of completed matches
 # ------------------------------------------------------------
 
 result_keys = {}
@@ -427,21 +449,22 @@ for fixture in fixtures:
     )
 
     if key not in result_keys:
-        remaining_fixtures.append(fixture)
-
+        remaining_fixtures.append(
+            fixture
+        )
 
 fixtures = remaining_fixtures
 
 
 # ------------------------------------------------------------
-# Combine results and future fixtures
+# Combine results and fixtures
 # ------------------------------------------------------------
 
 events = results + fixtures
 
 
 # ------------------------------------------------------------
-# Sort fixtures chronologically
+# Sort chronologically
 # ------------------------------------------------------------
 
 def sort_key(event):
@@ -457,7 +480,9 @@ def sort_key(event):
     return datetime.max
 
 
-events.sort(key=sort_key)
+events.sort(
+    key=sort_key
+)
 
 
 # ------------------------------------------------------------
@@ -510,7 +535,6 @@ print("=" * 60)
 # ------------------------------------------------------------
 
 def ics_escape(value):
-    """Escape text for an iCalendar field."""
 
     return (
         str(value)
@@ -538,7 +562,9 @@ lines = [
 ]
 
 
-now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+now = datetime.utcnow().strftime(
+    "%Y%m%dT%H%M%SZ"
+)
 
 
 for event in events:
@@ -549,9 +575,14 @@ for event in events:
         continue
 
     # Assume a 90-minute fixture.
-    end = dt + timedelta(minutes=90)
 
-    # Use a stable UID based on the FA fixture ID.
+    end = dt + timedelta(
+        minutes=90
+    )
+
+
+    # Stable UID based on FA fixture ID.
+
     fixture_id_match = re.search(
         r"id=(\d+)",
         event.get("url", "")
@@ -559,7 +590,9 @@ for event in events:
 
     if fixture_id_match:
 
-        fixture_id = fixture_id_match.group(1)
+        fixture_id = (
+            fixture_id_match.group(1)
+        )
 
     else:
 
@@ -570,20 +603,26 @@ for event in events:
         )
 
         if not fixture_id:
+
             fixture_id = (
                 event["date"]
                 + event["home"]
                 + event["away"]
             )
 
-    uid = f"{fixture_id}@pannal-ash-flames-calendar"
+
+    uid = (
+        f"{fixture_id}"
+        "@pannal-ash-flames-calendar"
+    )
 
 
     if event["home_score"] is not None:
 
         summary = (
             f'{event["home"]} '
-            f'{event["home_score"]} - {event["away_score"]} '
+            f'{event["home_score"]} - '
+            f'{event["away_score"]} '
             f'{event["away"]}'
         )
 
@@ -592,12 +631,14 @@ for event in events:
     else:
 
         summary = (
-            f'{event["home"]} v {event["away"]}'
+            f'{event["home"]} v '
+            f'{event["away"]}'
         )
 
         description = (
             f"FA Full-Time fixture: "
-            f'{event["home"]} v {event["away"]}'
+            f'{event["home"]} v '
+            f'{event["away"]}'
         )
 
 
@@ -605,8 +646,10 @@ for event in events:
         "BEGIN:VEVENT",
         f"UID:{ics_escape(uid)}",
         f"DTSTAMP:{now}",
-        f"DTSTART;TZID=Europe/London:{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/London:{end.strftime('%Y%m%dT%H%M%S')}",
+        f"DTSTART;TZID=Europe/London:"
+        f"{dt.strftime('%Y%m%dT%H%M%S')}",
+        f"DTEND;TZID=Europe/London:"
+        f"{end.strftime('%Y%m%dT%H%M%S')}",
         f"SUMMARY:{ics_escape(summary)}",
         f"DESCRIPTION:{ics_escape(description)}",
     ])
@@ -651,4 +694,8 @@ print("CALENDAR CREATED")
 print("=" * 60)
 print("Events written:", len(events))
 print("File:", OUTPUT)
-print("File size:", OUTPUT.stat().st_size, "bytes")
+print(
+    "File size:",
+    OUTPUT.stat().st_size,
+    "bytes"
+)
