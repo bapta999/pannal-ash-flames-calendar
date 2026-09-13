@@ -62,6 +62,7 @@ results_text = download_page(RESULTS_SOURCE_URL)
 
 print("FA results page downloaded successfully")
 print("Result characters downloaded:", len(results_text))
+print(results_text)
 
 
 # ------------------------------------------------------------
