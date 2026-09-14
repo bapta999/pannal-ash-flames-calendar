@@ -44,8 +44,18 @@ def clean_name(name):
     """
     Clean a team name taken from Markdown or image alt text.
     """
-    name = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", name)
-    name = re.sub(r"\[[^\]]+\]\([^)]+\)", "", name)
+
+    name = re.sub(
+        r"!\[[^\]]*\]\([^)]+\)",
+        "",
+        name
+    )
+
+    name = re.sub(
+        r"\[[^\]]+\]\([^)]+\)",
+        "",
+        name
+    )
 
     name = name.replace("&nbsp;", " ")
     name = re.sub(r"\s+", " ", name)
@@ -55,56 +65,100 @@ def clean_name(name):
 
 def normalise_team_name(name):
     """
-    Normalise a team name for comparison without changing
-    the actual name written into the calendar.
+    Normalise a team name for comparison.
     """
+
     name = clean_name(name)
 
     name = name.replace("’", "'")
     name = name.replace("–", "-")
     name = name.replace("—", "-")
 
-    return re.sub(r"\s+", " ", name).strip().lower()
+    return re.sub(
+        r"\s+",
+        " ",
+        name
+    ).strip().lower()
 
 
 def is_flames(name):
-    return normalise_team_name(name) == normalise_team_name(FLAMES)
+    return (
+        normalise_team_name(name)
+        == normalise_team_name(FLAMES)
+    )
 
 
 def parse_date_time(date_text, time_text):
+
     for fmt in (
         "%d/%m/%y %H:%M",
         "%d/%m/%Y %H:%M",
     ):
+
         try:
             return datetime.strptime(
                 f"{date_text} {time_text}",
                 fmt
             )
+
         except ValueError:
             pass
 
     return None
 
 
-def extract_score(block):
+def is_score_text(value):
+
+    return bool(
+        re.fullmatch(
+            r"\d+\s*-\s*\d+(?:\s*\(HT[^)]*\))?",
+            value.strip(),
+            re.IGNORECASE
+        )
+    )
+
+
+def extract_score_from_result_block(block):
+
     """
-    Find a football score such as 5 - 1 or 5-1.
+    Extract the score specifically from the result table.
+
+    We deliberately only look for a score which is attached
+    to a Markdown link. This prevents numbers elsewhere in
+    the fixture block, such as pitch dimensions, from being
+    mistaken for a football score.
     """
-    match = re.search(
-        r"(?<!\d)(\d+)\s*-\s*(\d+)(?!\d)",
+
+    score_links = re.findall(
+        r"\[([^\]]+)\]\(\s*[^)]+\s*\)",
         block
     )
 
-    if not match:
-        return None
+    for label in score_links:
 
-    return int(match.group(1)), int(match.group(2))
+        label = clean_name(label)
+
+        match = re.fullmatch(
+            r"(\d+)\s*-\s*(\d+)"
+            r"(?:\s*\(HT\s*\d+\s*-\s*\d+\))?",
+            label,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            return (
+                int(match.group(1)),
+                int(match.group(2))
+            )
+
+    return None
 
 
 def extract_team_names(block):
+
     """
-    Extract the two team names from a fixture block.
+    Extract the two teams from a fixture/result block.
 
     The FA page can represent teams as:
       - normal Markdown links
@@ -114,7 +168,10 @@ def extract_team_names(block):
 
     team_names = []
 
-    # First try normal fixture links.
+    # --------------------------------------------------------
+    # Normal Markdown links
+    # --------------------------------------------------------
+
     links = re.findall(
         r"\[([^\]]+)\]\(\s*"
         r"(https://fulltime\.thefa\.com/"
@@ -124,15 +181,25 @@ def extract_team_names(block):
     )
 
     for label, url in links:
+
         label = clean_name(label)
 
-        if label and not is_score_text(label):
-            team_names.append(label)
+        if not label:
+            continue
+
+        if is_score_text(label):
+            continue
+
+        team_names.append(label)
 
     if len(team_names) >= 2:
         return team_names[:2]
 
-    # Try image alt text.
+
+    # --------------------------------------------------------
+    # Image alt text
+    # --------------------------------------------------------
+
     alt_names = re.findall(
         r"!\[[^\]]*?:\s*([^\]]+)\]\([^)]+\)",
         block
@@ -147,7 +214,11 @@ def extract_team_names(block):
     if len(alt_names) >= 2:
         return alt_names[:2]
 
-    # Try plain table cells.
+
+    # --------------------------------------------------------
+    # Plain table cells
+    # --------------------------------------------------------
+
     plain = re.sub(
         r"!\[[^\]]*\]\([^)]+\)",
         "",
@@ -169,10 +240,18 @@ def extract_team_names(block):
     possible_teams = []
 
     for cell in cells:
+
         if is_score_text(cell):
             continue
 
-        if cell.upper() in ("VS", "V", "L", "C", "F", "P"):
+        if cell.upper() in (
+            "VS",
+            "V",
+            "L",
+            "C",
+            "F",
+            "P"
+        ):
             continue
 
         if len(cell) > 2:
@@ -184,20 +263,7 @@ def extract_team_names(block):
     return []
 
 
-def is_score_text(value):
-    return bool(
-        re.fullmatch(
-            r"\d+\s*-\s*\d+(?:\s*\(HT[^)]*\))?",
-            value.strip(),
-            re.IGNORECASE
-        )
-    )
-
-
 def find_fixture_url(block):
-    """
-    Find the FA fixture URL in a fixture block.
-    """
 
     match = re.search(
         r"https://fulltime\.thefa\.com/"
@@ -212,55 +278,77 @@ def find_fixture_url(block):
 
 
 # ------------------------------------------------------------
-# Find dated fixture/result sections
-#
-# Each section starts with something like:
-#
-# | L | 12/09/26 10:00 |
-#
-# The same accessible team page contains both future
-# fixtures and completed results.
+# Find the Results and Upcoming Fixtures sections
 # ------------------------------------------------------------
 
-fixture_pattern = re.compile(
-    r"\|\s*[A-Z]\s*\|\s*"
-    r"(\d{2}/\d{2}/\d{2,4})\s+(\d{1,2}:\d{2})\s*\|"
-    r"(.*?)(?=\|\s*[A-Z]\s*\|\s*"
-    r"\d{2}/\d{2}/\d{2,4}\s+\d{1,2}:\d{2}\s*\||\Z)",
-    re.DOTALL
+results_heading = re.search(
+    r"##\s+Latest Results",
+    text,
+    re.IGNORECASE
+)
+
+fixtures_heading = re.search(
+    r"##\s+Upcoming Fixtures",
+    text,
+    re.IGNORECASE
 )
 
 
-fixtures = []
+# ------------------------------------------------------------
+# Results section
+# ------------------------------------------------------------
+
 results = []
 
+if results_heading:
 
-for match in fixture_pattern.finditer(text):
+    results_start = results_heading.end()
 
-    date_text = match.group(1)
-    time_text = match.group(2)
-    block = match.group(3)
+    if fixtures_heading and fixtures_heading.start() > results_start:
+        results_end = fixtures_heading.start()
+    else:
+        results_end = len(text)
 
-    team_names = extract_team_names(block)
+    results_section = text[
+        results_start:results_end
+    ]
 
-    if len(team_names) < 2:
-        continue
+    result_pattern = re.compile(
+        r"\|\s*[A-Z]\s*\|\s*"
+        r"(\d{2}/\d{2}/\d{2,4})\s+"
+        r"(\d{1,2}:\d{2})\s*\|"
+        r"(.*?)(?=\|\s*[A-Z]\s*\|\s*"
+        r"\d{2}/\d{2}/\d{2,4}\s+"
+        r"\d{1,2}:\d{2}\s*\||\Z)",
+        re.DOTALL
+    )
 
-    home = team_names[0]
-    away = team_names[1]
+    for match in result_pattern.finditer(
+        results_section
+    ):
 
-    # Only include matches involving Flames.
-    #
-    # This excludes matches involving Flashes alone,
-    # but includes Flames v Flashes.
+        date_text = match.group(1)
+        time_text = match.group(2)
+        block = match.group(3)
 
-    if not is_flames(home) and not is_flames(away):
-        continue
+        team_names = extract_team_names(block)
 
-    score = extract_score(block)
-    fixture_url = find_fixture_url(block)
+        if len(team_names) < 2:
+            continue
 
-    if score is not None:
+        home = team_names[0]
+        away = team_names[1]
+
+        if not is_flames(home) and not is_flames(away):
+            continue
+
+        score = extract_score_from_result_block(
+            block
+        )
+
+        if score is None:
+            continue
+
         results.append({
             "date": date_text,
             "time": time_text,
@@ -268,37 +356,61 @@ for match in fixture_pattern.finditer(text):
             "away": away,
             "home_score": score[0],
             "away_score": score[1],
-            "url": fixture_url,
+            "url": find_fixture_url(block),
         })
 
-    else:
+
+# ------------------------------------------------------------
+# Upcoming fixtures section
+# ------------------------------------------------------------
+
+fixtures = []
+
+if fixtures_heading:
+
+    fixtures_start = fixtures_heading.end()
+
+    fixtures_section = text[
+        fixtures_start:
+    ]
+
+    fixture_pattern = re.compile(
+        r"\|\s*[A-Z]\s*\|\s*"
+        r"(\d{2}/\d{2}/\d{2,4})\s+"
+        r"(\d{1,2}:\d{2})\s*\|"
+        r"(.*?)(?=\|\s*[A-Z]\s*\|\s*"
+        r"\d{2}/\d{2}/\d{2,4}\s+"
+        r"\d{1,2}:\d{2}\s*\||"
+        r"##\s+|\Z)",
+        re.DOTALL
+    )
+
+    for match in fixture_pattern.finditer(
+        fixtures_section
+    ):
+
+        date_text = match.group(1)
+        time_text = match.group(2)
+        block = match.group(3)
+
+        team_names = extract_team_names(block)
+
+        if len(team_names) < 2:
+            continue
+
+        home = team_names[0]
+        away = team_names[1]
+
+        if not is_flames(home) and not is_flames(away):
+            continue
+
         fixtures.append({
             "date": date_text,
             "time": time_text,
             "home": home,
             "away": away,
-            "url": fixture_url,
+            "url": find_fixture_url(block),
         })
-
-
-# ------------------------------------------------------------
-# Remove duplicate fixtures
-# ------------------------------------------------------------
-
-unique_fixtures = {}
-
-for fixture in fixtures:
-
-    key = (
-        fixture["date"],
-        fixture["time"],
-        normalise_team_name(fixture["home"]),
-        normalise_team_name(fixture["away"]),
-    )
-
-    unique_fixtures[key] = fixture
-
-fixtures = list(unique_fixtures.values())
 
 
 # ------------------------------------------------------------
@@ -324,7 +436,27 @@ results = list(unique_results.values())
 
 
 # ------------------------------------------------------------
-# Remove any future fixture which already has a result
+# Remove duplicate fixtures
+# ------------------------------------------------------------
+
+unique_fixtures = {}
+
+for fixture in fixtures:
+
+    key = (
+        fixture["date"],
+        fixture["time"],
+        normalise_team_name(fixture["home"]),
+        normalise_team_name(fixture["away"]),
+    )
+
+    unique_fixtures[key] = fixture
+
+fixtures = list(unique_fixtures.values())
+
+
+# ------------------------------------------------------------
+# Remove any fixture which already has a result
 # ------------------------------------------------------------
 
 completed_keys = set()
@@ -357,21 +489,26 @@ fixtures = [
 # Sort chronologically
 # ------------------------------------------------------------
 
-fixtures.sort(
-    key=lambda fixture:
-        parse_date_time(fixture["date"], fixture["time"])
-        or datetime.max
-)
-
 results.sort(
     key=lambda result:
-        parse_date_time(result["date"], result["time"])
-        or datetime.max
+        parse_date_time(
+            result["date"],
+            result["time"]
+        ) or datetime.max
+)
+
+
+fixtures.sort(
+    key=lambda fixture:
+        parse_date_time(
+            fixture["date"],
+            fixture["time"]
+        ) or datetime.max
 )
 
 
 # ------------------------------------------------------------
-# Diagnostic output
+# Diagnostics
 # ------------------------------------------------------------
 
 print()
@@ -380,6 +517,7 @@ print("FLAMES RESULTS FOUND:", len(results))
 print("=" * 60)
 
 for result in results:
+
     print(
         result["date"],
         result["time"],
@@ -398,6 +536,7 @@ print("FLAMES FUTURE FIXTURES FOUND:", len(fixtures))
 print("=" * 60)
 
 for fixture in fixtures:
+
     print(
         fixture["date"],
         fixture["time"],
@@ -413,9 +552,7 @@ for fixture in fixtures:
 # ------------------------------------------------------------
 
 def ics_escape(value):
-    """
-    Escape text for an iCalendar field.
-    """
+
     return (
         str(value)
         .replace("\\", "\\\\")
@@ -427,6 +564,7 @@ def ics_escape(value):
 
 
 def make_uid(value):
+
     return (
         re.sub(r"\W+", "", value)
         + "@pannal-ash-flames-calendar"
@@ -434,7 +572,7 @@ def make_uid(value):
 
 
 # ------------------------------------------------------------
-# Build the calendar
+# Build calendar
 # ------------------------------------------------------------
 
 lines = [
@@ -448,7 +586,10 @@ lines = [
     "X-WR-TIMEZONE:Europe/London",
 ]
 
-now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+now = datetime.now(
+    timezone.utc
+).strftime("%Y%m%dT%H%M%SZ")
 
 
 # ------------------------------------------------------------
@@ -465,7 +606,9 @@ for result in results:
     if dt is None:
         continue
 
-    end = dt + timedelta(minutes=90)
+    end = dt + timedelta(
+        minutes=90
+    )
 
     uid_base = (
         f"{result['date']}-"
@@ -484,7 +627,8 @@ for result in results:
     )
 
     description = (
-        f"Result: {result['home']} "
+        f"Result: "
+        f"{result['home']} "
         f"{result['home_score']} - "
         f"{result['away_score']} "
         f"{result['away']}"
@@ -494,8 +638,10 @@ for result in results:
         "BEGIN:VEVENT",
         f"UID:{uid}",
         f"DTSTAMP:{now}",
-        f"DTSTART;TZID=Europe/London:{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/London:{end.strftime('%Y%m%dT%H%M%S')}",
+        f"DTSTART;TZID=Europe/London:"
+        f"{dt.strftime('%Y%m%dT%H%M%S')}",
+        f"DTEND;TZID=Europe/London:"
+        f"{end.strftime('%Y%m%dT%H%M%S')}",
         f"SUMMARY:{ics_escape(summary)}",
         f"DESCRIPTION:{ics_escape(description)}",
         "END:VEVENT",
@@ -516,7 +662,9 @@ for fixture in fixtures:
     if dt is None:
         continue
 
-    end = dt + timedelta(minutes=90)
+    end = dt + timedelta(
+        minutes=90
+    )
 
     fixture_id_match = re.search(
         r"id=(\d+)",
@@ -524,8 +672,13 @@ for fixture in fixtures:
     )
 
     if fixture_id_match:
-        fixture_id = fixture_id_match.group(1)
+
+        fixture_id = (
+            fixture_id_match.group(1)
+        )
+
     else:
+
         fixture_id = (
             f"{fixture['date']}-"
             f"{fixture['time']}-"
@@ -536,12 +689,14 @@ for fixture in fixtures:
     uid = make_uid(fixture_id)
 
     summary = (
-        f"{fixture['home']} v {fixture['away']}"
+        f"{fixture['home']} v "
+        f"{fixture['away']}"
     )
 
     description = (
         f"FA Full-Time fixture: "
-        f"{fixture['home']} v {fixture['away']}\\n"
+        f"{fixture['home']} v "
+        f"{fixture['away']}\\n"
         f"{fixture['url']}"
     )
 
@@ -549,8 +704,10 @@ for fixture in fixtures:
         "BEGIN:VEVENT",
         f"UID:{uid}",
         f"DTSTAMP:{now}",
-        f"DTSTART;TZID=Europe/London:{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/London:{end.strftime('%Y%m%dT%H%M%S')}",
+        f"DTSTART;TZID=Europe/London:"
+        f"{dt.strftime('%Y%m%dT%H%M%S')}",
+        f"DTEND;TZID=Europe/London:"
+        f"{end.strftime('%Y%m%dT%H%M%S')}",
         f"SUMMARY:{ics_escape(summary)}",
         f"DESCRIPTION:{ics_escape(description)}",
         f"URL:{fixture['url']}",
@@ -562,7 +719,9 @@ for fixture in fixtures:
 # Finish calendar
 # ------------------------------------------------------------
 
-lines.append("END:VCALENDAR")
+lines.append(
+    "END:VCALENDAR"
+)
 
 
 # ------------------------------------------------------------
@@ -580,12 +739,37 @@ OUTPUT.write_text(
 )
 
 
+# ------------------------------------------------------------
+# Final output
+# ------------------------------------------------------------
+
 print()
 print("=" * 60)
 print("CALENDAR CREATED")
 print("=" * 60)
-print("Results written:", len(results))
-print("Future fixtures written:", len(fixtures))
-print("Total events written:", len(results) + len(fixtures))
-print("File:", OUTPUT)
-print("File size:", OUTPUT.stat().st_size, "bytes")
+
+print(
+    "Results written:",
+    len(results)
+)
+
+print(
+    "Future fixtures written:",
+    len(fixtures)
+)
+
+print(
+    "Total events written:",
+    len(results) + len(fixtures)
+)
+
+print(
+    "File:",
+    OUTPUT
+)
+
+print(
+    "File size:",
+    OUTPUT.stat().st_size,
+    "bytes"
+)
