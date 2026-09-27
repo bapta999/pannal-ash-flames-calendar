@@ -1,283 +1,267 @@
 import json
 import re
-import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
-# ------------------------------------------------------------
-# PANNAL ASH U14 GIRLS FLAMES
-# ------------------------------------------------------------
 
-LEAGUE_ID = "1867937"
-SEASON_ID = "41815654"
+# ============================================================
+# CONFIG
+# ============================================================
+
 DIVISION_ID = "308032551"
-FIXTURE_GROUP_KEY = "1_925809922"
+SEASON_ID = "41815654"
+
+TEAM_NAME = "Pannal Ash JFC U14 Girls Flames"
 
 OUTPUT = Path("docs/pannal-ash-flames.ics")
 
-FLAMES = "Pannal Ash JFC U14 Girls Flames"
+FIXTURES_URL = (
+    f"https://faapi.jwhsolutions.co.uk/api/Fixtures/"
+    f"{DIVISION_ID}/season/{SEASON_ID}"
+)
 
-API_BASE = "https://fulltime.thefa.com/api/sitecore/DivisionDetails"
+RESULTS_URL = (
+    f"https://faapi.jwhsolutions.co.uk/api/Results/"
+    f"{DIVISION_ID}/season/{SEASON_ID}"
+)
 
-print("=" * 60)
-print("PANNAL ASH FLAMES CALENDAR")
-print("=" * 60)
 
+# ============================================================
+# HTTP
+# ============================================================
 
-# ------------------------------------------------------------
-# API request helper
-#
-# IMPORTANT:
-# Full-Time blocks python-requests.
-# We therefore use curl with HTTP/1.1 explicitly forced.
-# ------------------------------------------------------------
+def download_json(url):
+    print(f"Requesting: {url}")
 
-def api_request(endpoint, record_per_page):
-
-    url = f"{API_BASE}/{endpoint}"
-
-    post_data = (
-        f"divisionid={DIVISION_ID}"
-        f"&leagueid={LEAGUE_ID}"
-        f"&TeamID=null"
-        f"&Days=all"
-        f"&seasonId={SEASON_ID}"
-        f"&offSet=0"
-        f"&recordPerPage={record_per_page}"
-    )
-
-    print()
-    print("Requesting:", endpoint)
-    print("Transport: curl / HTTP/1.1")
-
-    command = [
-        "curl",
-        "--http1.1",
-        "--silent",
-        "--show-error",
-        "--location",
-        "--compressed",
-
-        "-A",
-        (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/140.0.0.0 Safari/537.36"
-        ),
-
-        "-H",
-        "Accept: application/json, text/plain, */*",
-
-        "-H",
-        "Content-Type: application/x-www-form-urlencoded; charset=UTF-8",
-
-        "-H",
-        "Origin: https://fulltime.thefa.com",
-
-        "-H",
-        "Referer: https://fulltime.thefa.com/",
-
-        "-X",
-        "POST",
-
-        "--data",
-        post_data,
-
-        "--write-out",
-        "\n__HTTP_STATUS__%{http_code}",
-
+    request = Request(
         url,
-    ]
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/140.0 Safari/537.36"
+            ),
+            "Accept": "application/json",
+        },
+    )
 
     try:
+        with urlopen(request, timeout=60) as response:
+            status = response.status
+            raw = response.read().decode("utf-8", errors="replace")
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=90,
-            check=False,
-        )
+    except HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        print(f"HTTP status: {e.code}")
+        print(raw[:1000])
+        raise
 
-    except subprocess.TimeoutExpired:
+    except URLError as e:
+        print(f"ERROR downloading data: {e}")
+        raise
 
-        raise RuntimeError(
-            f"{endpoint} request timed out after 90 seconds."
-        )
+    print(f"HTTP status: {status}")
+    print(f"Characters returned: {len(raw)}")
 
-    if result.stderr.strip():
-
-        print()
-        print("curl diagnostics:")
-        print(result.stderr[:2000])
-
-    output = result.stdout
-
-    status_match = re.search(
-        r"\n__HTTP_STATUS__(\d{3})\s*$",
-        output,
-    )
-
-    if status_match:
-
-        status_code = int(
-            status_match.group(1)
-        )
-
-        response_text = output[
-            :status_match.start()
-        ]
-
-    else:
-
-        status_code = None
-        response_text = output
-
-    print(
-        "HTTP status:",
-        status_code
-    )
-
-    print(
-        "Characters returned:",
-        len(response_text)
-    )
-
-    if status_code != 200:
-
-        print()
-        print(
-            f"ERROR: Full-Time returned HTTP "
-            f"{status_code}."
-        )
-
-        print()
-        print(
-            "First 2000 characters of response:"
-        )
-
-        print(
-            response_text[:2000]
-        )
-
-        raise RuntimeError(
-            f"{endpoint} returned HTTP {status_code}."
-        )
+    if not raw.strip():
+        raise RuntimeError("API returned an empty response.")
 
     try:
+        return json.loads(raw)
 
-        return json.loads(
-            response_text
-        )
-
-    except json.JSONDecodeError as exc:
-
-        print()
-        print("API did not return valid JSON.")
-
-        print(
-            response_text[:2000]
-        )
-
-        raise RuntimeError(
-            f"{endpoint} returned invalid JSON."
-        ) from exc
+    except json.JSONDecodeError:
+        print("First 2000 characters:")
+        print(raw[:2000])
+        raise RuntimeError("API did not return valid JSON.")
 
 
-# ------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------
+# ============================================================
+# GENERAL JSON HELPERS
+# ============================================================
 
-def clean_name(name):
-
-    if name is None:
+def clean_name(value):
+    if value is None:
         return ""
 
-    name = str(name)
+    value = str(value).strip()
 
-    name = re.sub(
-        r"!\[[^\]]*\]\([^)]+\)",
-        "",
-        name
-    )
+    # Remove markdown/image artefacts if they occur
+    value = re.sub(r'!\[([^\]]*)\]\([^)]+\)', r'\1', value)
+    value = re.sub(r'(?<!!)\[([^\]]+)\]\(([^)]+)\)', r'\1', value)
 
-    name = re.sub(
-        r"\[([^\]]+)\]\([^)]+\)",
-        r"\1",
-        name
-    )
+    value = re.sub(r"^Image\s+\d+\s*:\s*", "", value, flags=re.I)
 
-    name = name.replace(
-        "&nbsp;",
-        " "
-    )
-
-    name = re.sub(
-        r"\s+",
-        " ",
-        name
-    )
-
-    return name.strip()
+    return re.sub(r"\s+", " ", value).strip()
 
 
-def normalise_team_name(name):
+def normalise_team_name(value):
+    value = clean_name(value).lower()
 
-    name = clean_name(name)
+    value = value.replace("&", "and")
 
-    name = name.replace(
-        "’",
-        "'"
-    )
+    # Make comparisons tolerant of punctuation
+    value = re.sub(r"[^a-z0-9]+", " ", value)
 
-    name = name.replace(
-        "–",
-        "-"
-    )
+    return re.sub(r"\s+", " ", value).strip()
 
-    name = name.replace(
-        "—",
-        "-"
-    )
 
-    return re.sub(
-        r"\s+",
-        " ",
-        name
-    ).strip().lower()
+NORMALISED_TEAM_NAME = normalise_team_name(TEAM_NAME)
 
 
 def is_flames(name):
+    return normalise_team_name(name) == NORMALISED_TEAM_NAME
 
-    return (
-        normalise_team_name(name)
-        == normalise_team_name(FLAMES)
-    )
 
+def first_non_empty(record, keys):
+    if not isinstance(record, dict):
+        return None
+
+    # Exact keys first
+    for key in keys:
+        if key in record and record[key] not in (None, ""):
+            return record[key]
+
+    # Then case-insensitive matching
+    lowered = {
+        str(k).lower(): v
+        for k, v in record.items()
+    }
+
+    for key in keys:
+        value = lowered.get(str(key).lower())
+
+        if value not in (None, ""):
+            return value
+
+    return None
+
+
+def get_value(record, *keys):
+    return first_non_empty(record, keys)
+
+
+def inspect_record(record, label):
+    print(f"\n--- {label} ---")
+
+    if isinstance(record, dict):
+        print("Keys:")
+        for key in record.keys():
+            print(f"  {key}")
+
+        print("\nSample:")
+        print(json.dumps(record, indent=2, ensure_ascii=False)[:5000])
+
+    else:
+        print(type(record).__name__)
+        print(str(record)[:5000])
+
+
+def get_record_list(data):
+    """
+    The external API may return:
+      - a plain list
+      - { "fixtures": [...] }
+      - { "results": [...] }
+      - { "data": [...] }
+      - another nested object
+
+    Walk the JSON until we find a useful list of dictionaries.
+    """
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+
+        preferred = [
+            "fixtures",
+            "results",
+            "data",
+            "items",
+            "records",
+            "matches",
+        ]
+
+        for key in preferred:
+            value = first_non_empty(data, [key])
+
+            if isinstance(value, list):
+                return value
+
+        # Search one level deeper
+        for value in data.values():
+
+            if isinstance(value, list):
+                if value and all(isinstance(x, dict) for x in value):
+                    return value
+
+            if isinstance(value, dict):
+                result = get_record_list(value)
+
+                if result:
+                    return result
+
+    return []
+
+
+# ============================================================
+# DATE / TIME
+# ============================================================
 
 def parse_date_value(value):
-
     if value is None:
         return None
 
     value = str(value).strip()
 
+    if not value:
+        return None
+
+    # ISO date/time
+    try:
+        dt = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+        return dt.date()
+    except ValueError:
+        pass
+
     formats = [
         "%d/%m/%Y",
         "%d/%m/%y",
         "%Y-%m-%d",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S.%f",
+        "%d-%m-%Y",
+        "%d-%m-%y",
+        "%m/%d/%Y",
+        "%m/%d/%y",
     ]
 
     for fmt in formats:
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            pass
+
+    # Extract date from larger strings
+    match = re.search(
+        r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b",
+        value
+    )
+
+    if match:
+        day, month, year = match.groups()
+
+        if len(year) == 2:
+            year = "20" + year
 
         try:
-            return datetime.strptime(
-                value,
-                fmt
-            )
-
+            return datetime(
+                int(year),
+                int(month),
+                int(day)
+            ).date()
         except ValueError:
             pass
 
@@ -285,930 +269,606 @@ def parse_date_value(value):
 
 
 def parse_time_value(value):
-
     if value is None:
-        return "10:00"
+        return None
 
     value = str(value).strip()
 
+    if not value:
+        return None
+
+    # HH:MM / HH:MM:SS
     match = re.search(
-        r"(\d{1,2}):(\d{2})",
+        r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b",
         value
     )
 
     if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
 
-        return (
-            f"{int(match.group(1)):02d}:"
-            f"{match.group(2)}"
-        )
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return hour, minute
 
-    return "10:00"
-
-
-def parse_datetime(date_value, time_value):
-
-    date_text = str(
-        date_value
-    ).strip()
-
-    time_text = parse_time_value(
-        time_value
+    # e.g. 10.30
+    match = re.search(
+        r"\b(\d{1,2})\.(\d{2})\b",
+        value
     )
 
-    date_match = re.search(
-        r"(\d{2}/\d{2}/\d{2,4})",
-        date_text
-    )
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2))
 
-    if date_match:
-
-        date_text = date_match.group(1)
-
-        for fmt in (
-            "%d/%m/%Y %H:%M",
-            "%d/%m/%y %H:%M",
-        ):
-
-            try:
-
-                return datetime.strptime(
-                    f"{date_text} {time_text}",
-                    fmt
-                )
-
-            except ValueError:
-                pass
-
-    parsed = parse_date_value(
-        date_text
-    )
-
-    if parsed is not None:
-
-        return parsed.replace(
-            hour=int(time_text[:2]),
-            minute=int(time_text[3:5])
-        )
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return hour, minute
 
     return None
 
 
-def get_value(record, names):
+def parse_datetime(record):
+    combined = get_value(
+        record,
+        "DateTime",
+        "FixtureDateTime",
+        "StartDateTime",
+        "MatchDateTime",
+        "KickOff",
+        "Kickoff",
+        "Date",
+        "FixtureDate",
+        "MatchDate",
+    )
 
-    if not isinstance(record, dict):
+    date_value = get_value(
+        record,
+        "Date",
+        "FixtureDate",
+        "MatchDate",
+        "GameDate",
+        "date",
+    )
+
+    time_value = get_value(
+        record,
+        "Time",
+        "FixtureTime",
+        "MatchTime",
+        "KickOffTime",
+        "KickoffTime",
+        "time",
+    )
+
+    date = parse_date_value(combined)
+
+    if date is None:
+        date = parse_date_value(date_value)
+
+    if date is None:
         return None
 
-    lowered = {
-        str(key).lower(): value
-        for key, value in record.items()
-    }
+    parsed_time = parse_time_value(combined)
 
-    for name in names:
+    if parsed_time is None:
+        parsed_time = parse_time_value(time_value)
 
-        if name.lower() in lowered:
-            return lowered[name.lower()]
+    if parsed_time is None:
+        hour, minute = 10, 0
+    else:
+        hour, minute = parsed_time
 
-    return None
+    return datetime(
+        date.year,
+        date.month,
+        date.day,
+        hour,
+        minute
+    )
 
 
-def first_non_empty(record, names):
+# ============================================================
+# TEAM NAME EXTRACTION
+# ============================================================
 
-    for name in names:
+HOME_KEYS = [
+    "Home",
+    "HomeTeam",
+    "HomeTeamName",
+    "HomeTeamDisplayName",
+    "HomeName",
+    "homeTeam",
+    "homeTeamName",
+    "home",
+]
 
-        value = get_value(
-            record,
-            [name]
+AWAY_KEYS = [
+    "Away",
+    "AwayTeam",
+    "AwayTeamName",
+    "AwayTeamDisplayName",
+    "AwayName",
+    "awayTeam",
+    "awayTeamName",
+    "away",
+]
+
+
+def extract_team_name(value):
+
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return clean_name(value)
+
+    if isinstance(value, dict):
+        name = first_non_empty(
+            value,
+            [
+                "Name",
+                "name",
+                "TeamName",
+                "teamName",
+                "DisplayName",
+                "displayName",
+                "ClubName",
+                "clubName",
+                "Description",
+                "description",
+            ]
         )
 
-        if value is not None:
+        if name:
+            return clean_name(name)
 
-            value = clean_name(
-                value
-            )
+    return clean_name(value)
 
-            if value:
-                return value
+
+def get_home_away(record):
+
+    home = extract_team_name(
+        get_value(record, *HOME_KEYS)
+    )
+
+    away = extract_team_name(
+        get_value(record, *AWAY_KEYS)
+    )
+
+    return home, away
+
+
+# ============================================================
+# IDS / URLS
+# ============================================================
+
+def get_fixture_url(record):
+
+    value = get_value(
+        record,
+        "Url",
+        "URL",
+        "url",
+        "FixtureUrl",
+        "FixtureURL",
+        "fixtureUrl",
+        "Link",
+        "link",
+    )
+
+    if isinstance(value, str) and value.startswith("http"):
+        return value
+
+    fixture_id = get_value(
+        record,
+        "FixtureId",
+        "FixtureID",
+        "fixtureId",
+        "Id",
+        "ID",
+        "id",
+    )
+
+    if fixture_id:
+        return (
+            "https://fulltime.thefa.com/"
+            f"displayFixture.html?id={fixture_id}"
+        )
 
     return ""
 
 
-def inspect_record(record):
+# ============================================================
+# SCORE
+# ============================================================
 
-    if not isinstance(record, dict):
-        return
+def get_score(record, home, away):
 
-    print()
-    print(
-        "API record fields:"
-    )
-
-    for key, value in record.items():
-
-        print(
-            f"  {key}: {value}"
-        )
-
-
-# ------------------------------------------------------------
-# Extract list from API response
-# ------------------------------------------------------------
-
-def get_record_list(data, possible_keys):
-
-    if isinstance(data, list):
-        return data
-
-    if not isinstance(data, dict):
-        return []
-
-    for key in possible_keys:
-
-        value = data.get(key)
-
-        if isinstance(value, list):
-            return value
-
-    for value in data.values():
-
-        if isinstance(value, dict):
-
-            for key in possible_keys:
-
-                nested = value.get(key)
-
-                if isinstance(nested, list):
-                    return nested
-
-    return []
-
-
-# ------------------------------------------------------------
-# Download fixtures
-# ------------------------------------------------------------
-
-fixtures_api = api_request(
-    "DivisionFixturesFacet",
-    500
-)
-
-fixtures_raw = get_record_list(
-    fixtures_api,
-    [
-        "LeagueFixture",
-        "leagueFixture",
-        "Fixtures",
-        "fixtures",
-        "response",
-    ]
-)
-
-print()
-print(
-    "RAW FIXTURE RECORDS:",
-    len(fixtures_raw)
-)
-
-
-# ------------------------------------------------------------
-# Download results
-# ------------------------------------------------------------
-
-results_api = api_request(
-    "DivisionResultFacet",
-    999
-)
-
-results_raw = get_record_list(
-    results_api,
-    [
-        "LeagueResults",
-        "leagueResults",
-        "Results",
-        "results",
-        "response",
-    ]
-)
-
-print()
-print(
-    "RAW RESULT RECORDS:",
-    len(results_raw)
-)
-
-
-# ------------------------------------------------------------
-# Parse fixtures
-# ------------------------------------------------------------
-
-fixtures = []
-
-printed_fixture_structure = False
-
-for record in fixtures_raw:
-
-    if not isinstance(record, dict):
-        continue
-
-    home = first_non_empty(
+    home_score = get_value(
         record,
-        [
-            "Home",
-            "HomeTeam",
-            "HomeTeamName",
-            "home",
-            "homeTeam",
-            "homeTeamName",
-        ]
+        "HomeScore",
+        "HomeGoals",
+        "homeScore",
+        "homeGoals",
+        "HomeResult",
     )
 
-    away = first_non_empty(
+    away_score = get_value(
         record,
-        [
-            "Away",
-            "AwayTeam",
-            "AwayTeamName",
-            "away",
-            "awayTeam",
-            "awayTeamName",
-        ]
+        "AwayScore",
+        "AwayGoals",
+        "awayScore",
+        "awayGoals",
+        "AwayResult",
     )
 
-    if not home or not away:
+    if home_score not in (None, "") and away_score not in (None, ""):
+        return str(home_score), str(away_score)
 
-        if not printed_fixture_structure:
-
-            print()
-            print(
-                "Could not identify teams in fixture record."
-            )
-
-            inspect_record(
-                record
-            )
-
-            printed_fixture_structure = True
-
-        continue
-
-    if not is_flames(home) and not is_flames(away):
-        continue
-
-    date_value = first_non_empty(
+    full_score = get_value(
         record,
-        [
-            "Date",
-            "FixtureDate",
-            "fixtureDate",
-            "date",
-        ]
+        "FullScore",
+        "Score",
+        "score",
+        "Result",
+        "result",
     )
 
-    time_value = first_non_empty(
-        record,
-        [
-            "Time",
-            "FixtureTime",
-            "fixtureTime",
-            "time",
-        ]
-    )
-
-    dt = parse_datetime(
-        date_value,
-        time_value
-    )
-
-    if dt is None:
-        continue
-
-    fixture_url = first_non_empty(
-        record,
-        [
-            "FixtureURL",
-            "fixtureURL",
-            "URL",
-            "url",
-            "FixtureLink",
-            "fixtureLink",
-        ]
-    )
-
-    fixture_id = first_non_empty(
-        record,
-        [
-            "FixtureID",
-            "fixtureID",
-            "Id",
-            "ID",
-            "id",
-        ]
-    )
-
-    if not fixture_url and fixture_id:
-
-        fixture_url = (
-            "https://fulltime.thefa.com/"
-            f"displayFixture.html?id={fixture_id}"
-        )
-
-    fixtures.append({
-        "date": dt.strftime("%d/%m/%y"),
-        "time": dt.strftime("%H:%M"),
-        "home": home,
-        "away": away,
-        "url": fixture_url,
-    })
-
-
-# ------------------------------------------------------------
-# Parse results
-# ------------------------------------------------------------
-
-results = []
-
-printed_result_structure = False
-
-for record in results_raw:
-
-    if not isinstance(record, dict):
-        continue
-
-    home = first_non_empty(
-        record,
-        [
-            "Home",
-            "HomeTeam",
-            "HomeTeamName",
-            "home",
-            "homeTeam",
-            "homeTeamName",
-        ]
-    )
-
-    away = first_non_empty(
-        record,
-        [
-            "Away",
-            "AwayTeam",
-            "AwayTeamName",
-            "away",
-            "awayTeam",
-            "awayTeamName",
-        ]
-    )
-
-    if not home or not away:
-
-        if not printed_result_structure:
-
-            print()
-            print(
-                "Could not identify teams in result record."
-            )
-
-            inspect_record(
-                record
-            )
-
-            printed_result_structure = True
-
-        continue
-
-    if not is_flames(home) and not is_flames(away):
-        continue
-
-    date_value = first_non_empty(
-        record,
-        [
-            "Date",
-            "ResultDate",
-            "resultDate",
-            "date",
-        ]
-    )
-
-    time_value = first_non_empty(
-        record,
-        [
-            "Time",
-            "ResultTime",
-            "resultTime",
-            "time",
-        ]
-    )
-
-    dt = parse_datetime(
-        date_value,
-        time_value
-    )
-
-    if dt is None:
-        continue
-
-    home_score_value = first_non_empty(
-        record,
-        [
-            "HomeScore",
-            "homeScore",
-            "HomeGoals",
-            "homeGoals",
-        ]
-    )
-
-    away_score_value = first_non_empty(
-        record,
-        [
-            "AwayScore",
-            "awayScore",
-            "AwayGoals",
-            "awayGoals",
-        ]
-    )
-
-    try:
-
-        home_score = int(
-            re.search(
-                r"\d+",
-                home_score_value
-            ).group()
-        )
-
-        away_score = int(
-            re.search(
-                r"\d+",
-                away_score_value
-            ).group()
-        )
-
-    except (
-        AttributeError,
-        TypeError,
-        ValueError
-    ):
-
-        full_score = first_non_empty(
-            record,
-            [
-                "FullScore",
-                "fullScore",
-                "Score",
-                "score",
-            ]
-        )
-
-        score_match = re.search(
+    if full_score:
+        match = re.search(
             r"(\d+)\s*[-–]\s*(\d+)",
-            full_score
+            str(full_score)
         )
 
-        if not score_match:
+        if match:
+            return match.group(1), match.group(2)
+
+    return "", ""
+
+
+# ============================================================
+# FIXTURES
+# ============================================================
+
+def parse_fixtures(data):
+
+    records = get_record_list(data)
+
+    print(f"Raw fixture records found: {len(records)}")
+
+    if records:
+        inspect_record(records[0], "FIRST FIXTURE RECORD")
+
+    fixtures = []
+
+    for record in records:
+
+        if not isinstance(record, dict):
             continue
 
-        home_score = int(
-            score_match.group(1)
+        home, away = get_home_away(record)
+
+        if not home or not away:
+            continue
+
+        # Only Flames games.
+        # This automatically includes Flames v Flashes.
+        if not is_flames(home) and not is_flames(away):
+            continue
+
+        dt = parse_datetime(record)
+
+        if not dt:
+            continue
+
+        fixtures.append({
+            "date": dt,
+            "home": home,
+            "away": away,
+            "url": get_fixture_url(record),
+        })
+
+    return fixtures
+
+
+# ============================================================
+# RESULTS
+# ============================================================
+
+def parse_results(data):
+
+    records = get_record_list(data)
+
+    print(f"Raw result records found: {len(records)}")
+
+    if records:
+        inspect_record(records[0], "FIRST RESULT RECORD")
+
+    results = []
+
+    for record in records:
+
+        if not isinstance(record, dict):
+            continue
+
+        home, away = get_home_away(record)
+
+        if not home or not away:
+            continue
+
+        if not is_flames(home) and not is_flames(away):
+            continue
+
+        dt = parse_datetime(record)
+
+        if not dt:
+            continue
+
+        home_score, away_score = get_score(
+            record,
+            home,
+            away
         )
 
-        away_score = int(
-            score_match.group(2)
-        )
+        results.append({
+            "date": dt,
+            "home": home,
+            "away": away,
+            "home_score": home_score,
+            "away_score": away_score,
+            "url": get_fixture_url(record),
+        })
 
-    fixture_url = first_non_empty(
-        record,
-        [
-            "FixtureURL",
-            "fixtureURL",
-            "URL",
-            "url",
-            "FixtureLink",
-            "fixtureLink",
-        ]
-    )
-
-    fixture_id = first_non_empty(
-        record,
-        [
-            "FixtureID",
-            "fixtureID",
-            "Id",
-            "ID",
-            "id",
-        ]
-    )
-
-    if not fixture_url and fixture_id:
-
-        fixture_url = (
-            "https://fulltime.thefa.com/"
-            f"displayFixture.html?id={fixture_id}"
-        )
-
-    results.append({
-        "date": dt.strftime("%d/%m/%y"),
-        "time": dt.strftime("%H:%M"),
-        "home": home,
-        "away": away,
-        "home_score": home_score,
-        "away_score": away_score,
-        "url": fixture_url,
-    })
+    return results
 
 
-# ------------------------------------------------------------
-# Remove duplicates
-# ------------------------------------------------------------
+# ============================================================
+# DEDUPLICATION
+# ============================================================
 
-unique_results = {}
-
-for result in results:
-
-    key = (
-        result["date"],
-        result["time"],
-        normalise_team_name(
-            result["home"]
-        ),
-        normalise_team_name(
-            result["away"]
-        ),
-        result["home_score"],
-        result["away_score"],
-    )
-
-    unique_results[key] = result
-
-results = list(
-    unique_results.values()
-)
-
-
-unique_fixtures = {}
-
-for fixture in fixtures:
-
-    key = (
-        fixture["date"],
-        fixture["time"],
-        normalise_team_name(
-            fixture["home"]
-        ),
-        normalise_team_name(
-            fixture["away"]
-        ),
-    )
-
-    unique_fixtures[key] = fixture
-
-fixtures = list(
-    unique_fixtures.values()
-)
-
-
-# ------------------------------------------------------------
-# Remove fixtures already completed
-# ------------------------------------------------------------
-
-completed_keys = set()
-
-for result in results:
-
-    completed_keys.add(
-        (
-            result["date"],
-            result["time"],
-            normalise_team_name(
-                result["home"]
-            ),
-            normalise_team_name(
-                result["away"]
-            ),
-        )
+def fixture_key(item):
+    return (
+        item["date"].date(),
+        normalise_team_name(item["home"]),
+        normalise_team_name(item["away"]),
     )
 
 
-fixtures = [
-    fixture
-    for fixture in fixtures
-    if (
-        fixture["date"],
-        fixture["time"],
-        normalise_team_name(
-            fixture["home"]
-        ),
-        normalise_team_name(
-            fixture["away"]
-        ),
-    ) not in completed_keys
-]
+def dedupe(items):
+
+    seen = set()
+    output = []
+
+    for item in items:
+        key = fixture_key(item)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        output.append(item)
+
+    return output
 
 
-# ------------------------------------------------------------
-# Sort
-# ------------------------------------------------------------
+# ============================================================
+# ICS
+# ============================================================
 
-def sort_key(event):
+def escape_ics(value):
 
-    dt = parse_datetime(
-        event["date"],
-        event["time"]
-    )
-
-    return dt or datetime.max
-
-
-results.sort(
-    key=sort_key
-)
-
-fixtures.sort(
-    key=sort_key
-)
-
-
-# ------------------------------------------------------------
-# Diagnostics
-# ------------------------------------------------------------
-
-print()
-print("=" * 60)
-print(
-    "FLAMES RESULTS FOUND:",
-    len(results)
-)
-print("=" * 60)
-
-for result in results:
-
-    print(
-        f'{result["date"]} '
-        f'{result["time"]} - '
-        f'{result["home"]} '
-        f'{result["home_score"]} - '
-        f'{result["away_score"]} '
-        f'{result["away"]}'
-    )
-
-
-print()
-print("=" * 60)
-print(
-    "FLAMES FUTURE FIXTURES FOUND:",
-    len(fixtures)
-)
-print("=" * 60)
-
-for fixture in fixtures:
-
-    print(
-        f'{fixture["date"]} '
-        f'{fixture["time"]} - '
-        f'{fixture["home"]} v '
-        f'{fixture["away"]}'
-    )
-
-
-# ------------------------------------------------------------
-# iCalendar helpers
-# ------------------------------------------------------------
-
-def ics_escape(value):
+    value = str(value)
 
     return (
-        str(value)
+        value
         .replace("\\", "\\\\")
         .replace(";", "\\;")
         .replace(",", "\\,")
-        .replace("\r", "")
         .replace("\n", "\\n")
     )
 
 
-def make_uid(value):
+def utc_timestamp():
+
+    return datetime.now(timezone.utc).strftime(
+        "%Y%m%dT%H%M%SZ"
+    )
+
+
+def local_ics_datetime(dt):
+
+    return dt.strftime("%Y%m%dT%H%M%S")
+
+
+def create_uid(item):
 
     return (
-        re.sub(
-            r"\W+",
-            "",
-            str(value)
-        )
-        + "@pannal-ash-flames-calendar"
+        f"{item['date'].strftime('%Y%m%d%H%M')}-"
+        f"{normalise_team_name(item['home'])}-"
+        f"{normalise_team_name(item['away'])}"
+        "@pannal-ash-flames"
     )
 
 
-# ------------------------------------------------------------
-# Build calendar
-# ------------------------------------------------------------
+def build_ics(results, fixtures):
 
-lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Pannal Ash JFC//U14 Girls Flames//EN",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    "X-WR-CALNAME:Pannal Ash U14 Girls Flames",
-    "X-WR-CALDESC:Pannal Ash U14 Girls Flames fixtures and results",
-    "X-WR-TIMEZONE:Europe/London",
-]
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Pannal Ash JFC//U14 Girls Flames//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:Pannal Ash U14 Girls Flames",
+        "X-WR-CALDESC:Pannal Ash U14 Girls Flames fixtures and results",
+        "X-WR-TIMEZONE:Europe/London",
+    ]
 
+    # --------------------------------------------------------
+    # RESULTS
+    # --------------------------------------------------------
 
-now = datetime.now(
-    timezone.utc
-).strftime(
-    "%Y%m%dT%H%M%SZ"
-)
+    for item in results:
 
+        start = item["date"]
+        end = start + timedelta(minutes=90)
 
-# ------------------------------------------------------------
-# Add results
-# ------------------------------------------------------------
+        if item["home_score"] and item["away_score"]:
+            summary = (
+                f"{item['home']} "
+                f"{item['home_score']} - {item['away_score']} "
+                f"{item['away']}"
+            )
 
-for result in results:
+        else:
+            summary = (
+                f"{item['home']} v {item['away']}"
+            )
 
-    dt = parse_datetime(
-        result["date"],
-        result["time"]
-    )
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{escape_ics(create_uid(item))}",
+            f"DTSTAMP:{utc_timestamp()}",
+            f"DTSTART;TZID=Europe/London:{local_ics_datetime(start)}",
+            f"DTEND;TZID=Europe/London:{local_ics_datetime(end)}",
+            f"SUMMARY:{escape_ics(summary)}",
+            f"LOCATION:{escape_ics(item['home'] if is_flames(item['away']) else item['away'])}",
+            "STATUS:CONFIRMED",
+        ])
 
-    if dt is None:
-        continue
+        if item.get("url"):
+            lines.append(
+                f"URL:{item['url']}"
+            )
 
-    end = dt + timedelta(
-        minutes=90
-    )
+        lines.append("END:VEVENT")
 
-    uid_base = (
-        f"{result['date']}-"
-        f"{result['time']}-"
-        f"{result['home']}-"
-        f"{result['away']}"
-    )
+    # --------------------------------------------------------
+    # FUTURE FIXTURES
+    # --------------------------------------------------------
 
-    uid = make_uid(
-        uid_base
-    )
+    for item in fixtures:
 
-    summary = (
-        f"{result['home']} "
-        f"{result['home_score']} - "
-        f"{result['away_score']} "
-        f"{result['away']}"
-    )
+        start = item["date"]
+        end = start + timedelta(minutes=90)
 
-    description = (
-        f"Result: "
-        f"{result['home']} "
-        f"{result['home_score']} - "
-        f"{result['away_score']} "
-        f"{result['away']}"
-    )
-
-    lines.extend([
-        "BEGIN:VEVENT",
-        f"UID:{uid}",
-        f"DTSTAMP:{now}",
-        f"DTSTART;TZID=Europe/London:"
-        f"{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/London:"
-        f"{end.strftime('%Y%m%dT%H%M%S')}",
-        f"SUMMARY:{ics_escape(summary)}",
-        f"DESCRIPTION:{ics_escape(description)}",
-        "END:VEVENT",
-    ])
-
-
-# ------------------------------------------------------------
-# Add future fixtures
-# ------------------------------------------------------------
-
-for fixture in fixtures:
-
-    dt = parse_datetime(
-        fixture["date"],
-        fixture["time"]
-    )
-
-    if dt is None:
-        continue
-
-    end = dt + timedelta(
-        minutes=90
-    )
-
-    fixture_id_match = re.search(
-        r"id=(\d+)",
-        fixture["url"]
-    )
-
-    if fixture_id_match:
-
-        fixture_id = (
-            fixture_id_match.group(1)
+        summary = (
+            f"{item['home']} v {item['away']}"
         )
 
-    else:
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{escape_ics(create_uid(item))}",
+            f"DTSTAMP:{utc_timestamp()}",
+            f"DTSTART;TZID=Europe/London:{local_ics_datetime(start)}",
+            f"DTEND;TZID=Europe/London:{local_ics_datetime(end)}",
+            f"SUMMARY:{escape_ics(summary)}",
+            "STATUS:CONFIRMED",
+        ])
 
-        fixture_id = (
-            f"{fixture['date']}-"
-            f"{fixture['time']}-"
-            f"{fixture['home']}-"
-            f"{fixture['away']}"
+        if item.get("url"):
+            lines.append(
+                f"URL:{item['url']}"
+            )
+
+        lines.append("END:VEVENT")
+
+    lines.append("END:VCALENDAR")
+
+    return "\n".join(lines) + "\n"
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    print("==============================================")
+    print("PANNAL ASH U14 GIRLS FLAMES CALENDAR")
+    print("==============================================")
+
+    print()
+    print("Downloading fixtures...")
+    fixture_data = download_json(FIXTURES_URL)
+
+    print()
+    print("Downloading results...")
+    result_data = download_json(RESULTS_URL)
+
+    print()
+    print("Parsing fixtures...")
+    fixtures = parse_fixtures(fixture_data)
+
+    print()
+    print("Parsing results...")
+    results = parse_results(result_data)
+
+    # Remove future fixture entries which are already represented
+    # by completed results.
+    result_keys = {
+        fixture_key(result)
+        for result in results
+    }
+
+    fixtures = [
+        fixture
+        for fixture in fixtures
+        if fixture_key(fixture) not in result_keys
+    ]
+
+    fixtures = dedupe(fixtures)
+    results = dedupe(results)
+
+    fixtures.sort(key=lambda x: x["date"])
+    results.sort(key=lambda x: x["date"])
+
+    print()
+    print(f"FLAMES RESULTS FOUND: {len(results)}")
+    print(f"FLAMES FUTURE FIXTURES FOUND: {len(fixtures)}")
+
+    print()
+
+    for result in results:
+        print(
+            f"RESULT: "
+            f"{result['date'].strftime('%d/%m/%y %H:%M')} - "
+            f"{result['home']} "
+            f"{result['home_score']} - {result['away_score']} "
+            f"{result['away']}"
         )
 
-    uid = make_uid(
-        fixture_id
-    )
+    print()
 
-    summary = (
-        f"{fixture['home']} v "
-        f"{fixture['away']}"
-    )
-
-    description = (
-        f"FA Full-Time fixture: "
-        f"{fixture['home']} v "
-        f"{fixture['away']}\\n"
-        f"{fixture['url']}"
-    )
-
-    lines.extend([
-        "BEGIN:VEVENT",
-        f"UID:{uid}",
-        f"DTSTAMP:{now}",
-        f"DTSTART;TZID=Europe/London:"
-        f"{dt.strftime('%Y%m%dT%H%M%S')}",
-        f"DTEND;TZID=Europe/London:"
-        f"{end.strftime('%Y%m%dT%H%M%S')}",
-        f"SUMMARY:{ics_escape(summary)}",
-        f"DESCRIPTION:{ics_escape(description)}",
-    ])
-
-    if fixture["url"]:
-
-        lines.append(
-            f"URL:{fixture['url']}"
+    for fixture in fixtures:
+        print(
+            f"FIXTURE: "
+            f"{fixture['date'].strftime('%d/%m/%y %H:%M')} - "
+            f"{fixture['home']} v {fixture['away']}"
         )
 
-    lines.append(
-        "END:VEVENT"
+    print()
+    print("Building calendar...")
+
+    OUTPUT.parent.mkdir(
+        parents=True,
+        exist_ok=True
     )
 
+    ics = build_ics(
+        results,
+        fixtures
+    )
 
-# ------------------------------------------------------------
-# Finish calendar
-# ------------------------------------------------------------
+    OUTPUT.write_text(
+        ics,
+        encoding="utf-8"
+    )
 
-lines.append(
-    "END:VCALENDAR"
-)
-
-
-# ------------------------------------------------------------
-# Write calendar
-# ------------------------------------------------------------
-
-OUTPUT.parent.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-OUTPUT.write_text(
-    "\r\n".join(lines) + "\r\n",
-    encoding="utf-8"
-)
+    print()
+    print(f"Calendar written to: {OUTPUT}")
+    print(f"Calendar events: {len(results) + len(fixtures)}")
+    print()
+    print("DONE")
 
 
-# ------------------------------------------------------------
-# Final output
-# ------------------------------------------------------------
-
-print()
-print("=" * 60)
-print("CALENDAR CREATED")
-print("=" * 60)
-
-print(
-    "Results written:",
-    len(results)
-)
-
-print(
-    "Future fixtures written:",
-    len(fixtures)
-)
-
-print(
-    "Total events written:",
-    len(results) + len(fixtures)
-)
-
-print(
-    "File:",
-    OUTPUT
-)
-
-print(
-    "File size:",
-    OUTPUT.stat().st_size,
-    "bytes"
-)
+if __name__ == "__main__":
+    main()
