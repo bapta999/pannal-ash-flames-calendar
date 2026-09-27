@@ -20,18 +20,81 @@ print("=" * 60)
 # Download the FA Full-Time page
 # ------------------------------------------------------------
 
-response = requests.get(
-    URL,
-    timeout=60,
-    headers={
-        "User-Agent": "Mozilla/5.0"
+def download_fulltime_page():
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/plain",
+        "X-Engine": "browser",
+        "X-Timeout": "30",
     }
-)
 
-response.raise_for_status()
+    print("Downloading FA Full-Time page via Jina Reader...")
 
-text = response.text
+    response = requests.get(
+        URL,
+        timeout=90,
+        headers=headers
+    )
 
+    response.raise_for_status()
+
+    page_text = response.text
+
+    print("First download characters:", len(page_text))
+
+    # A genuine Full-Time team page should be considerably larger
+    # than a few hundred characters.
+    if len(page_text) >= 5000:
+        return page_text
+
+    print()
+    print("WARNING: Jina returned an unexpectedly short page.")
+    print("Response received:")
+    print(page_text[:1000])
+
+    print()
+    print("Trying Jina Reader again using the direct engine...")
+
+    direct_headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/plain",
+        "X-Engine": "direct",
+        "X-Timeout": "30",
+    }
+
+    response = requests.get(
+        URL,
+        timeout=90,
+        headers=direct_headers
+    )
+
+    response.raise_for_status()
+
+    page_text = response.text
+
+    print("Second download characters:", len(page_text))
+
+    if len(page_text) < 5000:
+
+        print()
+        print("ERROR: Full-Time page was not downloaded correctly.")
+        print("The response was only", len(page_text), "characters.")
+        print()
+        print("Response received:")
+        print(page_text[:2000])
+
+        raise RuntimeError(
+            "Jina Reader returned an unexpectedly short "
+            "Full-Time page. Calendar was not rebuilt."
+        )
+
+    return page_text
+
+
+text = download_fulltime_page()
+
+print()
 print("FA page downloaded successfully")
 print("Characters downloaded:", len(text))
 
@@ -41,9 +104,6 @@ print("Characters downloaded:", len(text))
 # ------------------------------------------------------------
 
 def clean_name(name):
-    """
-    Clean a team name taken from Markdown or image alt text.
-    """
 
     name = re.sub(
         r"!\[[^\]]*\]\([^)]+\)",
@@ -58,15 +118,17 @@ def clean_name(name):
     )
 
     name = name.replace("&nbsp;", " ")
-    name = re.sub(r"\s+", " ", name)
+
+    name = re.sub(
+        r"\s+",
+        " ",
+        name
+    )
 
     return name.strip()
 
 
 def normalise_team_name(name):
-    """
-    Normalise a team name for comparison.
-    """
 
     name = clean_name(name)
 
@@ -82,6 +144,7 @@ def normalise_team_name(name):
 
 
 def is_flames(name):
+
     return (
         normalise_team_name(name)
         == normalise_team_name(FLAMES)
@@ -120,15 +183,6 @@ def is_score_text(value):
 
 def extract_score_from_result_block(block):
 
-    """
-    Extract the score specifically from the result table.
-
-    We deliberately only look for a score which is attached
-    to a Markdown link. This prevents numbers elsewhere in
-    the fixture block, such as pitch dimensions, from being
-    mistaken for a football score.
-    """
-
     score_links = re.findall(
         r"\[([^\]]+)\]\(\s*[^)]+\s*\)",
         block
@@ -157,15 +211,6 @@ def extract_score_from_result_block(block):
 
 def extract_team_names(block):
 
-    """
-    Extract the two teams from a fixture/result block.
-
-    The FA page can represent teams as:
-      - normal Markdown links
-      - image alt text
-      - plain table cells
-    """
-
     team_names = []
 
     # --------------------------------------------------------
@@ -173,7 +218,7 @@ def extract_team_names(block):
     # --------------------------------------------------------
 
     links = re.findall(
-        r"\[([^\]]+)\]\(\s*"
+        r"(?<!!)\[([^\]]+)\]\(\s*"
         r"(https://fulltime\.thefa\.com/"
         r"display(?:Fixture|CountyFixture)\.html\?id=\d+[^)]*)"
         r"\s*\)",
