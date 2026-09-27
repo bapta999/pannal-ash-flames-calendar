@@ -1,5 +1,6 @@
+import json
 import re
-import requests
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -18,7 +19,6 @@ FLAMES = "Pannal Ash JFC U14 Girls Flames"
 
 API_BASE = "https://fulltime.thefa.com/api/sitecore/DivisionDetails"
 
-
 print("=" * 60)
 print("PANNAL ASH FLAMES CALENDAR")
 print("=" * 60)
@@ -26,71 +26,162 @@ print("=" * 60)
 
 # ------------------------------------------------------------
 # API request helper
+#
+# IMPORTANT:
+# Full-Time blocks python-requests.
+# We therefore use curl with HTTP/1.1 explicitly forced.
 # ------------------------------------------------------------
 
 def api_request(endpoint, record_per_page):
 
-    url = (
-        f"{API_BASE}/{endpoint}"
+    url = f"{API_BASE}/{endpoint}"
+
+    post_data = (
+        f"divisionid={DIVISION_ID}"
+        f"&leagueid={LEAGUE_ID}"
+        f"&TeamID=null"
+        f"&Days=all"
+        f"&seasonId={SEASON_ID}"
+        f"&offSet=0"
+        f"&recordPerPage={record_per_page}"
     )
-
-    data = {
-        "divisionid": DIVISION_ID,
-        "leagueid": LEAGUE_ID,
-        "TeamID": "null",
-        "Days": "all",
-        "seasonId": SEASON_ID,
-        "offSet": "0",
-        "recordPerPage": str(record_per_page),
-    }
-
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Origin": "https://fulltime.thefa.com",
-        "Referer": (
-            "https://fulltime.thefa.com/"
-            "index.html"
-        ),
-    }
 
     print()
     print("Requesting:", endpoint)
+    print("Transport: curl / HTTP/1.1")
 
-    response = requests.post(
+    command = [
+        "curl",
+        "--http1.1",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--compressed",
+
+        "-A",
+        (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/140.0.0.0 Safari/537.36"
+        ),
+
+        "-H",
+        "Accept: application/json, text/plain, */*",
+
+        "-H",
+        "Content-Type: application/x-www-form-urlencoded; charset=UTF-8",
+
+        "-H",
+        "Origin: https://fulltime.thefa.com",
+
+        "-H",
+        "Referer: https://fulltime.thefa.com/",
+
+        "-X",
+        "POST",
+
+        "--data",
+        post_data,
+
+        "--write-out",
+        "\n__HTTP_STATUS__%{http_code}",
+
         url,
-        data=data,
-        headers=headers,
-        timeout=90
+    ]
+
+    try:
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+
+    except subprocess.TimeoutExpired:
+
+        raise RuntimeError(
+            f"{endpoint} request timed out after 90 seconds."
+        )
+
+    if result.stderr.strip():
+
+        print()
+        print("curl diagnostics:")
+        print(result.stderr[:2000])
+
+    output = result.stdout
+
+    status_match = re.search(
+        r"\n__HTTP_STATUS__(\d{3})\s*$",
+        output,
     )
+
+    if status_match:
+
+        status_code = int(
+            status_match.group(1)
+        )
+
+        response_text = output[
+            :status_match.start()
+        ]
+
+    else:
+
+        status_code = None
+        response_text = output
 
     print(
         "HTTP status:",
-        response.status_code
+        status_code
     )
 
     print(
         "Characters returned:",
-        len(response.text)
+        len(response_text)
     )
 
-    response.raise_for_status()
-
-    try:
-        result = response.json()
-
-    except ValueError:
+    if status_code != 200:
 
         print()
-        print("API did not return JSON.")
-        print(response.text[:2000])
-
-        raise RuntimeError(
-            f"{endpoint} returned a non-JSON response."
+        print(
+            f"ERROR: Full-Time returned HTTP "
+            f"{status_code}."
         )
 
-    return result
+        print()
+        print(
+            "First 2000 characters of response:"
+        )
+
+        print(
+            response_text[:2000]
+        )
+
+        raise RuntimeError(
+            f"{endpoint} returned HTTP {status_code}."
+        )
+
+    try:
+
+        return json.loads(
+            response_text
+        )
+
+    except json.JSONDecodeError as exc:
+
+        print()
+        print("API did not return valid JSON.")
+
+        print(
+            response_text[:2000]
+        )
+
+        raise RuntimeError(
+            f"{endpoint} returned invalid JSON."
+        ) from exc
 
 
 # ------------------------------------------------------------
@@ -225,7 +316,6 @@ def parse_datetime(date_value, time_value):
         time_value
     )
 
-    # Handle dates already containing a time.
     date_match = re.search(
         r"(\d{2}/\d{2}/\d{2,4})",
         date_text
@@ -339,7 +429,6 @@ def get_record_list(data, possible_keys):
         if isinstance(value, list):
             return value
 
-    # Search one level down.
     for value in data.values():
 
         if isinstance(value, dict):
@@ -363,7 +452,6 @@ fixtures_api = api_request(
     500
 )
 
-
 fixtures_raw = get_record_list(
     fixtures_api,
     [
@@ -374,7 +462,6 @@ fixtures_raw = get_record_list(
         "response",
     ]
 )
-
 
 print()
 print(
@@ -392,7 +479,6 @@ results_api = api_request(
     999
 )
 
-
 results_raw = get_record_list(
     results_api,
     [
@@ -403,7 +489,6 @@ results_raw = get_record_list(
         "response",
     ]
 )
-
 
 print()
 print(
@@ -451,9 +536,6 @@ for record in fixtures_raw:
 
     if not home or not away:
 
-        # Print the first unfamiliar record so that
-        # the parser can be adjusted if the FA changes
-        # its API structure.
         if not printed_fixture_structure:
 
             print()
@@ -666,8 +748,6 @@ for record in results_raw:
         ValueError
     ):
 
-        # Some versions of the API provide the
-        # complete score in a single field.
         full_score = first_non_empty(
             record,
             [
