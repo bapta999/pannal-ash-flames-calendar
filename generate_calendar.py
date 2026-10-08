@@ -13,28 +13,40 @@ from urllib.error import HTTPError, URLError
 DIVISION_ID = "308032551"
 SEASON_ID = "41815654"
 
+TEAM_ID = "101016902"
 TEAM_NAME = "Pannal Ash JFC U14 Girls Flames"
 
 OUTPUT = Path("docs/pannal-ash-flames.ics")
 
+# Normal league fixtures.
 FIXTURES_URL = (
     f"https://faapi.jwhsolutions.co.uk/api/Fixtures/"
     f"{DIVISION_ID}/season/{SEASON_ID}"
 )
 
+# Results, including completed league matches.
 RESULTS_URL = (
     f"https://faapi.jwhsolutions.co.uk/api/Results/"
     f"{DIVISION_ID}/season/{SEASON_ID}"
 )
 
-# The API fixture feed does not include separate cup fixtures.
-# The team page does, so we use it as a second fixture source.
-TEAM_PAGE_URL = (
-    "https://fulltime.thefa.com/displayTeam.html?id=101016902"
+# IMPORTANT:
+# Use the Full-Time FIXTURES page rather than displayTeam.html.
+#
+# We deliberately do NOT include selectedFixtureGroupKey here.
+# That allows the page to contain other competitions, including
+# County Cup fixtures involving the Flames.
+FULLTIME_FIXTURES_URL = (
+    "https://fulltime.thefa.com/fixtures.html"
+    "?league=1867937"
+    "&selectedSeason=41815654"
+    "&selectedDivision=308032551"
+    "&selectedCompetition=0"
+    f"&selectedTeam={TEAM_ID}"
 )
 
-TEAM_PAGE_JINA_URL = (
-    "https://r.jina.ai/" + TEAM_PAGE_URL
+FULLTIME_FIXTURES_JINA_URL = (
+    "https://r.jina.ai/" + FULLTIME_FIXTURES_URL
 )
 
 
@@ -158,37 +170,61 @@ def clean_name(value):
 
     value = str(value).strip()
 
-    # Remove markdown/image artefacts.
+    # Markdown image:
+    # ![Image 1: Team Name](...)
     value = re.sub(
-        r'!\[([^\]]*)\]\([^)]+\)',
+        r'!\[Image\s*\d*\s*:\s*([^\]]+)\]\([^)]+\)',
         r'\1',
-        value
-    )
-
-    value = re.sub(
-        r'(?<!!)\[([^\]]+)\]\(([^)]+)\)',
-        r'\1',
-        value
-    )
-
-    value = re.sub(
-        r"^Image\s+\d+\s*:\s*",
-        "",
         value,
-        flags=re.I
+        flags=re.IGNORECASE
     )
 
-    return re.sub(
-        r"\s+",
-        " ",
+    # Generic Markdown image.
+    value = re.sub(
+        r'!\[[^\]]*\]\([^)]+\)',
+        '',
         value
-    ).strip()
+    )
+
+    # Normal Markdown link.
+    value = re.sub(
+        r'(?<!!)'
+        r'\[([^\]]+)\]\([^)]+\)',
+        r'\1',
+        value
+    )
+
+    # Raw URLs.
+    value = re.sub(
+        r'https?://\S+',
+        '',
+        value
+    )
+
+    # Image labels left by Jina.
+    value = re.sub(
+        r'\bImage\s*\d*\s*:\s*',
+        '',
+        value,
+        flags=re.IGNORECASE
+    )
+
+    value = re.sub(
+        r'\s+',
+        ' ',
+        value
+    )
+
+    return value.strip(" |:-")
 
 
 def normalise_team_name(value):
     value = clean_name(value).lower()
 
-    value = value.replace("&", "and")
+    value = value.replace(
+        "&",
+        "and"
+    )
 
     value = re.sub(
         r"[^a-z0-9]+",
@@ -220,6 +256,7 @@ def first_non_empty(record, keys):
         return None
 
     for key in keys:
+
         if (
             key in record
             and record[key] not in (None, "")
@@ -232,6 +269,7 @@ def first_non_empty(record, keys):
     }
 
     for key in keys:
+
         value = lowered.get(
             str(key).lower()
         )
@@ -253,6 +291,7 @@ def inspect_record(record, label):
     print(f"\n--- {label} ---")
 
     if isinstance(record, dict):
+
         print("Keys:")
 
         for key in record.keys():
@@ -269,6 +308,7 @@ def inspect_record(record, label):
         )
 
     else:
+
         print(
             type(record).__name__
         )
@@ -645,6 +685,18 @@ def get_fixture_url(record):
     return ""
 
 
+def find_fixture_url(text):
+
+    match = re.search(
+        r'https://fulltime\.thefa\.com/'
+        r'(?:displayFixture|displayCountyFixture)\.html'
+        r'\?id=\d+[^)\s]*',
+        text
+    )
+
+    return match.group(0) if match else ""
+
+
 # ============================================================
 # SCORE
 # ============================================================
@@ -777,15 +829,109 @@ def parse_fixtures(data):
 
 
 # ============================================================
-# TEAM PAGE CUP / OTHER FIXTURES
+# FULL-TIME FIXTURES PAGE
 # ============================================================
 
-def parse_team_page_fixtures(text):
+def extract_teams_from_fixture_line(line):
+
+    # First preference: Jina's image alt text.
+    image_names = re.findall(
+        r'!\[Image\s*\d*\s*:\s*([^\]]+)\]',
+        line,
+        flags=re.IGNORECASE
+    )
+
+    image_names = [
+        normalise_display_team_name(x)
+        for x in image_names
+    ]
+
+    image_names = [
+        x for x in image_names
+        if x
+    ]
+
+    if len(image_names) >= 2:
+        return image_names[0], image_names[1]
+
+    # Second preference: VS-separated text.
+    match = re.search(
+        r'\s+VS\s+',
+        line,
+        flags=re.IGNORECASE
+    )
+
+    if not match:
+        return "", ""
+
+    left = line[:match.start()]
+    right = line[match.end():]
+
+    date_match = re.search(
+        r'\b\d{2}/\d{2}/\d{2}\s+\d{1,2}:\d{2}\b',
+        line
+    )
+
+    if date_match:
+
+        left = left.replace(
+            date_match.group(0),
+            ""
+        )
+
+    # Remove table/image clutter.
+    left = clean_name(left)
+    right = clean_name(right)
+
+    # If pipes remain, the final meaningful item on the
+    # left is the home team and the first meaningful item
+    # on the right is the away team.
+    left_parts = [
+        clean_name(x)
+        for x in left.split("|")
+        if clean_name(x)
+    ]
+
+    right_parts = [
+        clean_name(x)
+        for x in right.split("|")
+        if clean_name(x)
+    ]
+
+    if left_parts:
+        left = left_parts[-1]
+
+    if right_parts:
+        right = right_parts[0]
+
+    return (
+        normalise_display_team_name(left),
+        normalise_display_team_name(right)
+    )
+
+
+def normalise_display_team_name(name):
+
+    name = clean_name(name)
+
+    # The fixtures page can contain the correct team names
+    # in image alt text, but sometimes the surrounding text
+    # contains venue/club information.
+    #
+    # Preserve the actual displayed team name whenever possible.
+
+    if is_flames(name):
+        return TEAM_NAME
+
+    return name
+
+
+def parse_fulltime_fixtures(text):
 
     fixtures = []
 
     print()
-    print("Parsing Full-Time team page...")
+    print("Parsing Full-Time fixtures page...")
 
     lines = text.splitlines()
 
@@ -796,10 +942,8 @@ def parse_team_page_fixtures(text):
 
     for line in lines:
 
-        if (
-            TEAM_NAME.lower()
-            not in line.lower()
-        ):
+        # We only care about lines which contain the Flames.
+        if TEAM_NAME.lower() not in line.lower():
             continue
 
         match = date_pattern.search(line)
@@ -812,62 +956,23 @@ def parse_team_page_fixtures(text):
             f"{match.group(2)}"
         )
 
-        dt = datetime.strptime(
-            date_text,
-            "%d/%m/%y %H:%M"
-        )
+        try:
+            dt = datetime.strptime(
+                date_text,
+                "%d/%m/%y %H:%M"
+            )
 
-        # Ignore old result lines here.
-        # The API Results endpoint handles results.
+        except ValueError:
+            continue
+
+        # Ignore completed matches here.
+        # Scores come from the Results API.
         if dt.date() < datetime.now().date():
             continue
 
-        parts = [
-            clean_name(part)
-            for part in line.split("|")
-        ]
-
-        # Remove empty fields and image-only fields.
-        useful = []
-
-        for part in parts:
-
-            if not part:
-                continue
-
-            if part.lower().startswith(
-                "image:"
-            ):
-                continue
-
-            if part.upper() == "VS":
-                useful.append("VS")
-                continue
-
-            useful.append(part)
-
-        if "VS" not in useful:
-            continue
-
-        vs_index = useful.index("VS")
-
-        before = [
-            x for x in useful[:vs_index]
-            if not date_pattern.search(x)
-        ]
-
-        after = useful[vs_index + 1:]
-
-        if not before or not after:
-            continue
-
-        # The final team-like item before VS
-        # is the home team.
-        home = before[-1]
-
-        # The first team-like item after VS
-        # is the away team.
-        away = after[0]
+        home, away = extract_teams_from_fixture_line(
+            line
+        )
 
         if not home or not away:
             continue
@@ -878,27 +983,47 @@ def parse_team_page_fixtures(text):
         ):
             continue
 
-        # Determine whether this is a cup fixture
-        # from the text before the date.
-        prefix = line[:match.start()]
+        home = (
+            TEAM_NAME
+            if is_flames(home)
+            else clean_name(home)
+        )
 
+        away = (
+            TEAM_NAME
+            if is_flames(away)
+            else clean_name(away)
+        )
+
+        # County Cup fixtures are marked "CC" and have
+        # "County Cups" in the competition information.
         competition = ""
 
-        if "County Cups" in prefix:
-            competition = prefix.strip()
+        if (
+            re.search(
+                r'\bCC\b',
+                line
+            )
+            or "County Cups" in line
+            or "County FA" in line
+            or "Junior Trophy" in line
+        ):
+            competition = "County Cups"
 
         fixtures.append({
             "date": dt,
             "home": home,
             "away": away,
-            "url": "",
+            "url": find_fixture_url(line),
             "competition": competition,
         })
 
-    fixtures = dedupe(fixtures)
+    fixtures = dedupe(
+        fixtures
+    )
 
     print(
-        "Team page fixtures found: "
+        "Full-Time fixtures found: "
         f"{len(fixtures)}"
     )
 
@@ -1108,7 +1233,11 @@ def build_ics(
             f"SUMMARY:{escape_ics(summary)}",
             (
                 "LOCATION:"
-                f"{escape_ics(item['home'] if is_flames(item['away']) else item['away'])}"
+                f"{escape_ics("
+                    "item['home'] "
+                    "if is_flames(item['away']) "
+                    "else item['away']"
+                )}"
             ),
             "STATUS:CONFIRMED",
         ])
@@ -1141,7 +1270,6 @@ def build_ics(
             f"{item['away']}"
         )
 
-        # Clearly identify cup fixtures.
         competition = item.get(
             "competition",
             ""
@@ -1149,8 +1277,10 @@ def build_ics(
 
         if (
             competition
-            and "County Cups" in competition
+            and "County Cups"
+            in competition
         ):
+
             summary = (
                 f"CUP: "
                 f"{item['home']} v "
@@ -1231,25 +1361,25 @@ def main():
     )
 
     # --------------------------------------------------------
-    # FULL-TIME TEAM PAGE
+    # FULL-TIME FIXTURES PAGE
     # --------------------------------------------------------
 
     print()
     print(
-        "Downloading Full-Time team page..."
+        "Downloading Full-Time fixtures page..."
     )
 
-    team_page = download_text(
-        TEAM_PAGE_JINA_URL
+    fulltime_text = download_text(
+        FULLTIME_FIXTURES_JINA_URL
     )
 
     print(
-        "Team page characters downloaded: "
-        f"{len(team_page)}"
+        "Full-Time fixtures page characters downloaded: "
+        f"{len(fulltime_text)}"
     )
 
     # --------------------------------------------------------
-    # PARSE API DATA
+    # PARSE API FIXTURES
     # --------------------------------------------------------
 
     print()
@@ -1259,6 +1389,10 @@ def main():
         fixture_data
     )
 
+    # --------------------------------------------------------
+    # PARSE API RESULTS
+    # --------------------------------------------------------
+
     print()
     print("Parsing results...")
 
@@ -1267,26 +1401,27 @@ def main():
     )
 
     # --------------------------------------------------------
-    # PARSE TEAM PAGE
+    # PARSE FULL-TIME FIXTURES
     # --------------------------------------------------------
 
-    team_page_fixtures = (
-        parse_team_page_fixtures(
-            team_page
+    fulltime_fixtures = (
+        parse_fulltime_fixtures(
+            fulltime_text
         )
     )
 
     # --------------------------------------------------------
     # MERGE FIXTURE SOURCES
     #
-    # API gives us the normal league fixtures.
-    # Team page gives us cup fixtures which the
-    # division API does not expose.
+    # The API supplies the normal league fixtures.
+    #
+    # The Full-Time fixtures page supplies any additional
+    # fixtures, especially County Cup fixtures.
     # --------------------------------------------------------
 
     fixtures = (
         fixtures
-        + team_page_fixtures
+        + fulltime_fixtures
     )
 
     fixtures = dedupe(
@@ -1294,8 +1429,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # REMOVE FUTURE FIXTURES WHICH ARE ALREADY
-    # REPRESENTED BY COMPLETED RESULTS
+    # REMOVE FUTURE FIXTURES WHICH ARE ALREADY RESULTS
     # --------------------------------------------------------
 
     result_keys = {
