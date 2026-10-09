@@ -256,7 +256,6 @@ def first_non_empty(record, keys):
         return None
 
     for key in keys:
-
         if (
             key in record
             and record[key] not in (None, "")
@@ -269,7 +268,6 @@ def first_non_empty(record, keys):
     }
 
     for key in keys:
-
         value = lowered.get(
             str(key).lower()
         )
@@ -291,7 +289,6 @@ def inspect_record(record, label):
     print(f"\n--- {label} ---")
 
     if isinstance(record, dict):
-
         print("Keys:")
 
         for key in record.keys():
@@ -308,7 +305,6 @@ def inspect_record(record, label):
         )
 
     else:
-
         print(
             type(record).__name__
         )
@@ -335,7 +331,6 @@ def get_record_list(data):
         return data
 
     if isinstance(data, dict):
-
         preferred = [
             "fixtures",
             "results",
@@ -346,7 +341,6 @@ def get_record_list(data):
         ]
 
         for key in preferred:
-
             value = first_non_empty(
                 data,
                 [key]
@@ -356,9 +350,7 @@ def get_record_list(data):
                 return value
 
         for value in data.values():
-
             if isinstance(value, list):
-
                 if value and all(
                     isinstance(x, dict)
                     for x in value
@@ -366,7 +358,6 @@ def get_record_list(data):
                     return value
 
             if isinstance(value, dict):
-
                 result = get_record_list(
                     value
                 )
@@ -411,7 +402,6 @@ def parse_date_value(value):
     ]
 
     for fmt in formats:
-
         try:
             return datetime.strptime(
                 value,
@@ -429,7 +419,6 @@ def parse_date_value(value):
     )
 
     if match:
-
         day, month, year = match.groups()
 
         if len(year) == 2:
@@ -464,7 +453,6 @@ def parse_time_value(value):
     )
 
     if match:
-
         hour = int(match.group(1))
         minute = int(match.group(2))
 
@@ -480,7 +468,6 @@ def parse_time_value(value):
     )
 
     if match:
-
         hour = int(match.group(1))
         minute = int(match.group(2))
 
@@ -494,7 +481,6 @@ def parse_time_value(value):
 
 
 def parse_datetime(record):
-
     combined = get_value(
         record,
         "DateTime",
@@ -591,7 +577,6 @@ AWAY_KEYS = [
 
 
 def extract_team_name(value):
-
     if value is None:
         return ""
 
@@ -599,7 +584,6 @@ def extract_team_name(value):
         return clean_name(value)
 
     if isinstance(value, dict):
-
         name = first_non_empty(
             value,
             [
@@ -623,7 +607,6 @@ def extract_team_name(value):
 
 
 def get_home_away(record):
-
     home = extract_team_name(
         get_value(
             record,
@@ -646,7 +629,6 @@ def get_home_away(record):
 # ============================================================
 
 def get_fixture_url(record):
-
     value = get_value(
         record,
         "Url",
@@ -676,7 +658,6 @@ def get_fixture_url(record):
     )
 
     if fixture_id:
-
         return (
             "https://fulltime.thefa.com/"
             f"displayFixture.html?id={fixture_id}"
@@ -686,7 +667,6 @@ def get_fixture_url(record):
 
 
 def find_fixture_url(text):
-
     match = re.search(
         r'https://fulltime\.thefa\.com/'
         r'(?:displayFixture|displayCountyFixture)\.html'
@@ -706,7 +686,6 @@ def get_score(
     home,
     away
 ):
-
     home_score = get_value(
         record,
         "HomeScore",
@@ -729,7 +708,6 @@ def get_score(
         home_score not in (None, "")
         and away_score not in (None, "")
     ):
-
         return (
             str(home_score),
             str(away_score)
@@ -745,14 +723,12 @@ def get_score(
     )
 
     if full_score:
-
         match = re.search(
             r"(\d+)\s*[-–]\s*(\d+)",
             str(full_score)
         )
 
         if match:
-
             return (
                 match.group(1),
                 match.group(2)
@@ -766,7 +742,6 @@ def get_score(
 # ============================================================
 
 def parse_fixtures(data):
-
     records = get_record_list(data)
 
     print(
@@ -783,7 +758,6 @@ def parse_fixtures(data):
     fixtures = []
 
     for record in records:
-
         if not isinstance(record, dict):
             continue
 
@@ -833,7 +807,6 @@ def parse_fixtures(data):
 # ============================================================
 
 def extract_teams_from_fixture_line(line):
-
     # First preference: Jina's image alt text.
     image_names = re.findall(
         r'!\[Image\s*\d*\s*:\s*([^\]]+)\]',
@@ -873,7 +846,6 @@ def extract_teams_from_fixture_line(line):
     )
 
     if date_match:
-
         left = left.replace(
             date_match.group(0),
             ""
@@ -911,7 +883,6 @@ def extract_teams_from_fixture_line(line):
 
 
 def normalise_display_team_name(name):
-
     name = clean_name(name)
 
     # The fixtures page can contain the correct team names
@@ -919,7 +890,6 @@ def normalise_display_team_name(name):
     # contains venue/club information.
     #
     # Preserve the actual displayed team name whenever possible.
-
     if is_flames(name):
         return TEAM_NAME
 
@@ -927,7 +897,6 @@ def normalise_display_team_name(name):
 
 
 def parse_fulltime_fixtures(text):
-
     fixtures = []
 
     print()
@@ -941,7 +910,6 @@ def parse_fulltime_fixtures(text):
     )
 
     for line in lines:
-
         # We only care about lines which contain the Flames.
         if TEAM_NAME.lower() not in line.lower():
             continue
@@ -1000,10 +968,7 @@ def parse_fulltime_fixtures(text):
         competition = ""
 
         if (
-            re.search(
-                r'\bCC\b',
-                line
-            )
+            re.search(r'\bCC\b', line)
             or "County Cups" in line
             or "County FA" in line
             or "Junior Trophy" in line
@@ -1035,7 +1000,6 @@ def parse_fulltime_fixtures(text):
 # ============================================================
 
 def parse_results(data):
-
     records = get_record_list(data)
 
     print(
@@ -1052,7 +1016,6 @@ def parse_results(data):
     results = []
 
     for record in records:
-
         if not isinstance(record, dict):
             continue
 
@@ -1097,7 +1060,6 @@ def parse_results(data):
 # ============================================================
 
 def fixture_key(item):
-
     return (
         item["date"].date(),
         normalise_team_name(
@@ -1110,12 +1072,10 @@ def fixture_key(item):
 
 
 def dedupe(items):
-
     seen = set()
     output = []
 
     for item in items:
-
         key = fixture_key(item)
 
         if key in seen:
@@ -1132,7 +1092,6 @@ def dedupe(items):
 # ============================================================
 
 def escape_ics(value):
-
     value = str(value)
 
     return (
@@ -1145,7 +1104,6 @@ def escape_ics(value):
 
 
 def utc_timestamp():
-
     return datetime.now(
         timezone.utc
     ).strftime(
@@ -1154,14 +1112,12 @@ def utc_timestamp():
 
 
 def local_ics_datetime(dt):
-
     return dt.strftime(
         "%Y%m%dT%H%M%S"
     )
 
 
 def create_uid(item):
-
     return (
         f"{item['date'].strftime('%Y%m%d%H%M')}-"
         f"{normalise_team_name(item['home'])}-"
@@ -1174,7 +1130,6 @@ def build_ics(
     results,
     fixtures
 ):
-
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -1191,7 +1146,6 @@ def build_ics(
     # --------------------------------------------------------
 
     for item in results:
-
         start = item["date"]
 
         end = (
@@ -1203,7 +1157,6 @@ def build_ics(
             item["home_score"]
             and item["away_score"]
         ):
-
             summary = (
                 f"{item['home']} "
                 f"{item['home_score']} - "
@@ -1212,11 +1165,17 @@ def build_ics(
             )
 
         else:
-
             summary = (
                 f"{item['home']} v "
                 f"{item['away']}"
             )
+
+        # Correctly determine the opponent for the location.
+        location = (
+            item["home"]
+            if is_flames(item["away"])
+            else item["away"]
+        )
 
         lines.extend([
             "BEGIN:VEVENT",
@@ -1231,19 +1190,11 @@ def build_ics(
                 f"{local_ics_datetime(end)}"
             ),
             f"SUMMARY:{escape_ics(summary)}",
-            (
-                "LOCATION:"
-                f"{escape_ics("
-                    "item['home'] "
-                    "if is_flames(item['away']) "
-                    "else item['away']"
-                )}"
-            ),
+            f"LOCATION:{escape_ics(location)}",
             "STATUS:CONFIRMED",
         ])
 
         if item.get("url"):
-
             lines.append(
                 f"URL:{item['url']}"
             )
@@ -1257,7 +1208,6 @@ def build_ics(
     # --------------------------------------------------------
 
     for item in fixtures:
-
         start = item["date"]
 
         end = (
@@ -1280,7 +1230,6 @@ def build_ics(
             and "County Cups"
             in competition
         ):
-
             summary = (
                 f"CUP: "
                 f"{item['home']} v "
@@ -1304,7 +1253,6 @@ def build_ics(
         ])
 
         if item.get("url"):
-
             lines.append(
                 f"URL:{item['url']}"
             )
@@ -1325,7 +1273,6 @@ def build_ics(
 # ============================================================
 
 def main():
-
     print(
         "=============================================="
     )
@@ -1478,7 +1425,6 @@ def main():
     print()
 
     for result in results:
-
         print(
             "RESULT: "
             f"{result['date'].strftime('%d/%m/%y %H:%M')} - "
@@ -1491,7 +1437,6 @@ def main():
     print()
 
     for fixture in fixtures:
-
         label = "FIXTURE"
 
         if (
