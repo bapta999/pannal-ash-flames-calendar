@@ -1,5 +1,7 @@
+
 import json
 import re
+from bs4 import BeautifulSoup
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from urllib.request import Request, urlopen
@@ -31,10 +33,8 @@ RESULTS_URL = (
 )
 
 # IMPORTANT:
-# Use the Full-Time FIXTURES page rather than displayTeam.html.
-#
-# We deliberately do NOT include selectedFixtureGroupKey here.
-# That allows the page to contain other competitions, including
+# We deliberately do NOT include selectedFixtureGroupKey.
+# This allows the page to contain other competitions, including
 # County Cup fixtures involving the Flames.
 FULLTIME_FIXTURES_URL = (
     "https://fulltime.thefa.com/fixtures.html"
@@ -885,10 +885,6 @@ def extract_teams_from_fixture_line(line):
 def normalise_display_team_name(name):
     name = clean_name(name)
 
-    # The fixtures page can contain the correct team names
-    # in image alt text, but sometimes the surrounding text
-    # contains venue/club information.
-    #
     # Preserve the actual displayed team name whenever possible.
     if is_flames(name):
         return TEAM_NAME
@@ -993,6 +989,179 @@ def parse_fulltime_fixtures(text):
     )
 
     return fixtures
+
+
+# ============================================================
+# FULL-TIME FALLBACK
+# ============================================================
+
+def download_fulltime_fixtures():
+    """
+    Try the Jina text mirror first, then the live Full-Time HTML.
+    If both are blocked, return an empty list and let the calendar
+    continue using the FA fixture/results APIs plus the known cup tie.
+    """
+
+    print()
+    print("Downloading Full-Time fixtures page...")
+
+    # First choice: readable text from Jina.
+    try:
+        page_text = download_text(
+            FULLTIME_FIXTURES_JINA_URL
+        )
+
+        if (
+            "just a moment" in page_text.lower()
+            or "cloudflare" in page_text.lower()
+            or "one more step" in page_text.lower()
+        ):
+            raise RuntimeError(
+                "Jina returned a Cloudflare challenge, not fixture data."
+            )
+
+        fixtures = parse_fulltime_fixtures(
+            page_text
+        )
+
+        if fixtures:
+            print(
+                "Full-Time fixtures parsed from Jina: "
+                f"{len(fixtures)}"
+            )
+            return fixtures
+
+        print(
+            "Jina returned a page, but no fixtures were parsed."
+        )
+
+    except Exception as error:
+        print(
+            "WARNING: Jina Full-Time request failed: "
+            f"{error}"
+        )
+
+    # Second choice: request the original HTML page directly.
+    try:
+        html = download_text(
+            FULLTIME_FIXTURES_URL
+        )
+
+        if (
+            "just a moment" in html.lower()
+            or "cloudflare" in html.lower()
+            or "one more step" in html.lower()
+        ):
+            raise RuntimeError(
+                "Full-Time returned a Cloudflare challenge."
+            )
+
+        soup = BeautifulSoup(
+            html,
+            "html.parser"
+        )
+
+        lines = []
+
+        for row in soup.find_all("tr"):
+            cells = row.find_all(
+                ["th", "td"]
+            )
+
+            if not cells:
+                continue
+
+            parts = []
+
+            for cell in cells:
+                # Preserve team names held only in image alt text.
+                for image in cell.find_all("img"):
+                    alt = clean_name(
+                        image.get("alt", "")
+                    )
+
+                    if alt:
+                        parts.append(
+                            f"![Image 1: {alt}]"
+                        )
+
+                cell_text = clean_name(
+                    cell.get_text(
+                        " ",
+                        strip=True
+                    )
+                )
+
+                if cell_text:
+                    parts.append(cell_text)
+
+            if parts:
+                lines.append(
+                    " | ".join(parts)
+                )
+
+        parsed_text = "\n".join(lines)
+
+        fixtures = parse_fulltime_fixtures(
+            parsed_text
+        )
+
+        if fixtures:
+            print(
+                "Full-Time fixtures parsed from direct HTML: "
+                f"{len(fixtures)}"
+            )
+            return fixtures
+
+        print(
+            "Direct HTML loaded, but no fixtures were parsed."
+        )
+
+    except Exception as error:
+        print(
+            "WARNING: Direct Full-Time request failed: "
+            f"{error}"
+        )
+
+    print(
+        "WARNING: Both Full-Time sources were unavailable. "
+        "Continuing with API data and the known County Cup fixture."
+    )
+
+    return []
+
+
+def known_cup_fallback():
+    """
+    Confirmed on the public FA Full-Time team page:
+    Bradford City AFC Womens U15 Girls v Pannal Ash U14 Girls Flames,
+    7 November 2026 at 10:00.
+
+    Only use this fallback while the fixture is still in the future
+    and no live County Cup fixtures were parsed.
+    """
+
+    match_date = datetime(
+        2026,
+        11,
+        7,
+        10,
+        0
+    )
+
+    if match_date.date() < datetime.now().date():
+        return []
+
+    return [{
+        "date": match_date,
+        "home": "Bradford City AFC Womens U15 Girls",
+        "away": TEAM_NAME,
+        "url": (
+            "https://fulltime.thefa.com/"
+            "displayTeam.html?id=101016902"
+        ),
+        "competition": "County Cups",
+    }]
 
 
 # ============================================================
@@ -1311,19 +1480,7 @@ def main():
     # FULL-TIME FIXTURES PAGE
     # --------------------------------------------------------
 
-    print()
-    print(
-        "Downloading Full-Time fixtures page..."
-    )
-
-    fulltime_text = download_text(
-        FULLTIME_FIXTURES_JINA_URL
-    )
-
-    print(
-        "Full-Time fixtures page characters downloaded: "
-        f"{len(fulltime_text)}"
-    )
+    fulltime_fixtures = download_fulltime_fixtures()
 
     # --------------------------------------------------------
     # PARSE API FIXTURES
@@ -1348,22 +1505,34 @@ def main():
     )
 
     # --------------------------------------------------------
-    # PARSE FULL-TIME FIXTURES
+    # PRESERVE THE CONFIRMED COUNTY CUP TIE
     # --------------------------------------------------------
 
-    fulltime_fixtures = (
-        parse_fulltime_fixtures(
-            fulltime_text
+    # If a live Full-Time page was available and contains a cup tie
+    # for the Flames, trust that live fixture list. Otherwise retain
+    # the confirmed Bradford City tie as a fallback.
+    live_cup_fixtures = [
+        fixture
+        for fixture in fulltime_fixtures
+        if (
+            fixture.get("competition")
+            and "County Cups"
+            in fixture.get("competition", "")
         )
-    )
+    ]
+
+    if not live_cup_fixtures:
+        fulltime_fixtures.extend(
+            known_cup_fallback()
+        )
 
     # --------------------------------------------------------
     # MERGE FIXTURE SOURCES
     #
     # The API supplies the normal league fixtures.
     #
-    # The Full-Time fixtures page supplies any additional
-    # fixtures, especially County Cup fixtures.
+    # The Full-Time fixtures page supplies additional fixtures,
+    # especially County Cup fixtures.
     # --------------------------------------------------------
 
     fixtures = (
