@@ -8,7 +8,7 @@ X-WR-CALDESC:Pannal Ash U14 Girls Flames fixtures and results
 X-WR-TIMEZONE:Europe/London
 BEGIN:VEVENT
 UID:202609121000-killinghall nomads juniors u14 girls-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20260912T100000
 DTEND;TZID=Europe/London:20260912T113000
 SUMMARY:Killinghall Nomads Juniors U14 Girls 5 - 1 Pannal Ash JFC U14 Girls Flames
@@ -17,7 +17,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202609191130-pannal ash jfc u14 girls flames-horsforth st margarets fc u14 wings@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20260919T113000
 DTEND;TZID=Europe/London:20260919T130000
 SUMMARY:Pannal Ash JFC U14 Girls Flames 4 - 1 Horsforth St. Margarets FC U14 Wings
@@ -26,7 +26,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202609261000-wigton moor u14 girls-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20260926T100000
 DTEND;TZID=Europe/London:20260926T113000
 SUMMARY:Wigton Moor U14 Girls 2 - 0 Pannal Ash JFC U14 Girls Flames
@@ -35,7 +35,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202610171030-clifford u14 girls-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20261017T103000
 DTEND;TZID=Europe/London:20261017T120000
 SUMMARY:Clifford U14 Girls v Pannal Ash JFC U14 Girls Flames
@@ -43,15 +43,24 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202611071000-pannal ash jfc u14 girls flames-scotton scorchers jfc u14 girls@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20261107T100000
 DTEND;TZID=Europe/London:20261107T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Scotton Scorchers JFC U14 Girls
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
+UID:202611071000-bradford city afc womens u15 girls-pannal ash jfc u14 girls flames@pannal-ash-flames
+DTSTAMP:20261009T150849Z
+DTSTART;TZID=Europe/London:20261107T100000
+DTEND;TZID=Europe/London:20261107T113000
+SUMMARY:CUP: Bradford City AFC Womens U15 Girls v Pannal Ash JFC U14 Girls Flames
+STATUS:CONFIRMED
+URL:https://fulltime.thefa.com/displayTeam.html?id=101016902
+END:VEVENT
+BEGIN:VEVENT
 UID:202611141000-pannal ash jfc u14 girls flashes-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20261114T100000
 DTEND;TZID=Europe/London:20261114T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flashes v Pannal Ash JFC U14 Girls Flames
@@ -59,7 +68,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202611281000-pannal ash jfc u14 girls flames-bramhope girls football club u14@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20261128T100000
 DTEND;TZID=Europe/London:20261128T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Bramhope Girls Football Club U14
@@ -67,7 +76,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202612051000-ilkley town afc u14 girls eagles-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20261205T100000
 DTEND;TZID=Europe/London:20261205T113000
 SUMMARY:Ilkley Town AFC U14 Girls - Eagles v Pannal Ash JFC U14 Girls Flames
@@ -75,7 +84,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202612121000-pannal ash jfc u14 girls flames-killinghall nomads juniors u14 girls@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20261212T100000
 DTEND;TZID=Europe/London:20261212T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Killinghall Nomads Juniors U14 Girls
@@ -83,7 +92,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202701091000-horsforth st margarets fc u14 wings-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270109T100000
 DTEND;TZID=Europe/London:20270109T113000
 SUMMARY:Horsforth St. Margarets FC U14 Wings v Pannal Ash JFC U14 Girls Flames
@@ -91,7 +100,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202701161000-pannal ash jfc u14 girls flames-wigton moor u14 girls@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270116T100000
 DTEND;TZID=Europe/London:20270116T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Wigton Moor U14 Girls
@@ -99,7 +108,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202702061000-pannal ash jfc u14 girls flames-clifford u14 girls@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270206T100000
 DTEND;TZID=Europe/London:20270206T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Clifford U14 Girls
@@ -107,7 +116,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202702271000-scotton scorchers jfc u14 girls-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270227T100000
 DTEND;TZID=Europe/London:20270227T113000
 SUMMARY:Scotton Scorchers JFC U14 Girls v Pannal Ash JFC U14 Girls Flames
@@ -115,7 +124,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202703061000-pannal ash jfc u14 girls flames-pannal ash jfc u14 girls flashes@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270306T100000
 DTEND;TZID=Europe/London:20270306T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Pannal Ash JFC U14 Girls Flashes
@@ -123,7 +132,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202703201000-bramhope girls football club u14-pannal ash jfc u14 girls flames@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270320T100000
 DTEND;TZID=Europe/London:20270320T113000
 SUMMARY:Bramhope Girls Football Club U14 v Pannal Ash JFC U14 Girls Flames
@@ -131,7 +140,7 @@ STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
 UID:202704101000-pannal ash jfc u14 girls flames-ilkley town afc u14 girls eagles@pannal-ash-flames
-DTSTAMP:20261008T183622Z
+DTSTAMP:20261009T150849Z
 DTSTART;TZID=Europe/London:20270410T100000
 DTEND;TZID=Europe/London:20270410T113000
 SUMMARY:Pannal Ash JFC U14 Girls Flames v Ilkley Town AFC U14 Girls - Eagles
