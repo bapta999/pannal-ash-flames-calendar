@@ -1,4 +1,3 @@
-
 import json
 import re
 from bs4 import BeautifulSoup
@@ -20,16 +19,22 @@ TEAM_NAME = "Pannal Ash JFC U14 Girls Flames"
 
 OUTPUT = Path("docs/pannal-ash-flames.ics")
 
+# Normal league fixtures.
 FIXTURES_URL = (
     f"https://faapi.jwhsolutions.co.uk/api/Fixtures/"
     f"{DIVISION_ID}/season/{SEASON_ID}"
 )
 
+# Results, including completed league matches.
 RESULTS_URL = (
     f"https://faapi.jwhsolutions.co.uk/api/Results/"
     f"{DIVISION_ID}/season/{SEASON_ID}"
 )
 
+# IMPORTANT:
+# We deliberately do NOT include selectedFixtureGroupKey.
+# This allows the page to contain other competitions, including
+# County Cup fixtures involving the Flames.
 FULLTIME_FIXTURES_URL = (
     "https://fulltime.thefa.com/fixtures.html"
     "?league=1867937"
@@ -45,7 +50,7 @@ FULLTIME_FIXTURES_JINA_URL = (
 
 
 # ============================================================
-# HTTP
+# HTTP - JSON
 # ============================================================
 
 def download_json(url):
@@ -65,36 +70,47 @@ def download_json(url):
 
     try:
         with urlopen(request, timeout=60) as response:
+            status = response.status
             raw = response.read().decode(
                 "utf-8",
                 errors="replace"
             )
 
-    except HTTPError as error:
-        raw = error.read().decode(
+    except HTTPError as e:
+        raw = e.read().decode(
             "utf-8",
             errors="replace"
         )
-        print(f"HTTP status: {error.code}")
+        print(f"HTTP status: {e.code}")
         print(raw[:1000])
         raise
 
-    except URLError as error:
-        print(f"ERROR downloading data: {error}")
+    except URLError as e:
+        print(f"ERROR downloading data: {e}")
         raise
 
+    print(f"HTTP status: {status}")
     print(f"Characters returned: {len(raw)}")
 
     if not raw.strip():
-        raise RuntimeError("API returned an empty response.")
+        raise RuntimeError(
+            "API returned an empty response."
+        )
 
     try:
         return json.loads(raw)
 
     except json.JSONDecodeError:
+        print("First 2000 characters:")
         print(raw[:2000])
-        raise RuntimeError("API did not return valid JSON.")
+        raise RuntimeError(
+            "API did not return valid JSON."
+        )
 
+
+# ============================================================
+# HTTP - TEXT
+# ============================================================
 
 def download_text(url):
     print(f"Requesting: {url}")
@@ -113,28 +129,32 @@ def download_text(url):
 
     try:
         with urlopen(request, timeout=60) as response:
+            status = response.status
             raw = response.read().decode(
                 "utf-8",
                 errors="replace"
             )
 
-    except HTTPError as error:
-        raw = error.read().decode(
+    except HTTPError as e:
+        raw = e.read().decode(
             "utf-8",
             errors="replace"
         )
-        print(f"HTTP status: {error.code}")
+        print(f"HTTP status: {e.code}")
         print(raw[:1000])
         raise
 
-    except URLError as error:
-        print(f"ERROR downloading page: {error}")
+    except URLError as e:
+        print(f"ERROR downloading page: {e}")
         raise
 
+    print(f"HTTP status: {status}")
     print(f"Characters returned: {len(raw)}")
 
     if not raw.strip():
-        raise RuntimeError("Page returned an empty response.")
+        raise RuntimeError(
+            "Page returned an empty response."
+        )
 
     return raw
 
@@ -149,6 +169,8 @@ def clean_name(value):
 
     value = str(value).strip()
 
+    # Markdown image:
+    # ![Image 1: Team Name](...)
     value = re.sub(
         r'!\[Image\s*\d*\s*:\s*([^\]]+)\]\([^)]+\)',
         r'\1',
@@ -156,24 +178,29 @@ def clean_name(value):
         flags=re.IGNORECASE
     )
 
+    # Generic Markdown image.
     value = re.sub(
         r'!\[[^\]]*\]\([^)]+\)',
         '',
         value
     )
 
+    # Normal Markdown link.
     value = re.sub(
-        r'(?<!!)\[([^\]]+)\]\([^)]+\)',
+        r'(?<!!)'
+        r'\[([^\]]+)\]\([^)]+\)',
         r'\1',
         value
     )
 
+    # Raw URLs.
     value = re.sub(
         r'https?://\S+',
         '',
         value
     )
 
+    # Image labels left by Jina.
     value = re.sub(
         r'\bImage\s*\d*\s*:\s*',
         '',
@@ -181,24 +208,46 @@ def clean_name(value):
         flags=re.IGNORECASE
     )
 
-    value = re.sub(r'\s+', ' ', value)
+    value = re.sub(
+        r'\s+',
+        ' ',
+        value
+    )
 
     return value.strip(" |:-")
 
 
 def normalise_team_name(value):
     value = clean_name(value).lower()
-    value = value.replace("&", "and")
-    value = re.sub(r"[^a-z0-9]+", " ", value)
 
-    return re.sub(r"\s+", " ", value).strip()
+    value = value.replace(
+        "&",
+        "and"
+    )
+
+    value = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        value
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        value
+    ).strip()
 
 
-NORMALISED_TEAM_NAME = normalise_team_name(TEAM_NAME)
+NORMALISED_TEAM_NAME = normalise_team_name(
+    TEAM_NAME
+)
 
 
 def is_flames(name):
-    return normalise_team_name(name) == NORMALISED_TEAM_NAME
+    return (
+        normalise_team_name(name)
+        == NORMALISED_TEAM_NAME
+    )
 
 
 def first_non_empty(record, keys):
@@ -206,16 +255,21 @@ def first_non_empty(record, keys):
         return None
 
     for key in keys:
-        if key in record and record[key] not in (None, ""):
+        if (
+            key in record
+            and record[key] not in (None, "")
+        ):
             return record[key]
 
     lowered = {
-        str(key).lower(): value
-        for key, value in record.items()
+        str(k).lower(): v
+        for k, v in record.items()
     }
 
     for key in keys:
-        value = lowered.get(str(key).lower())
+        value = lowered.get(
+            str(key).lower()
+        )
 
         if value not in (None, ""):
             return value
@@ -224,7 +278,10 @@ def first_non_empty(record, keys):
 
 
 def get_value(record, *keys):
-    return first_non_empty(record, keys)
+    return first_non_empty(
+        record,
+        keys
+    )
 
 
 def inspect_record(record, label):
@@ -233,7 +290,7 @@ def inspect_record(record, label):
     if isinstance(record, dict):
         print("Keys:")
 
-        for key in record:
+        for key in record.keys():
             print(f"  {key}")
 
         print("\nSample:")
@@ -246,8 +303,29 @@ def inspect_record(record, label):
             )[:5000]
         )
 
+    else:
+        print(
+            type(record).__name__
+        )
+
+        print(
+            str(record)[:5000]
+        )
+
 
 def get_record_list(data):
+    """
+    The external API may return:
+      - a plain list
+      - {"fixtures": [...]}
+      - {"results": [...]}
+      - {"data": [...]}
+      - another nested object
+
+    Walk the JSON until we find a useful
+    list of dictionaries.
+    """
+
     if isinstance(data, list):
         return data
 
@@ -262,7 +340,10 @@ def get_record_list(data):
         ]
 
         for key in preferred:
-            value = first_non_empty(data, [key])
+            value = first_non_empty(
+                data,
+                [key]
+            )
 
             if isinstance(value, list):
                 return value
@@ -270,13 +351,15 @@ def get_record_list(data):
         for value in data.values():
             if isinstance(value, list):
                 if value and all(
-                    isinstance(item, dict)
-                    for item in value
+                    isinstance(x, dict)
+                    for x in value
                 ):
                     return value
 
             if isinstance(value, dict):
-                result = get_record_list(value)
+                result = get_record_list(
+                    value
+                )
 
                 if result:
                     return result
@@ -301,6 +384,7 @@ def parse_date_value(value):
         dt = datetime.fromisoformat(
             value.replace("Z", "+00:00")
         )
+
         return dt.date()
 
     except ValueError:
@@ -318,13 +402,18 @@ def parse_date_value(value):
 
     for fmt in formats:
         try:
-            return datetime.strptime(value, fmt).date()
+            return datetime.strptime(
+                value,
+                fmt
+            ).date()
 
         except ValueError:
             pass
 
     match = re.search(
-        r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b",
+        r"\b(\d{1,2})[/-]"
+        r"(\d{1,2})[/-]"
+        r"(\d{2,4})\b",
         value
     )
 
@@ -353,8 +442,12 @@ def parse_time_value(value):
 
     value = str(value).strip()
 
+    if not value:
+        return None
+
     match = re.search(
-        r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b",
+        r"\b(\d{1,2}):(\d{2})"
+        r"(?::(\d{2}))?\b",
         value
     )
 
@@ -362,7 +455,10 @@ def parse_time_value(value):
         hour = int(match.group(1))
         minute = int(match.group(2))
 
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
+        if (
+            0 <= hour <= 23
+            and 0 <= minute <= 59
+        ):
             return hour, minute
 
     match = re.search(
@@ -374,7 +470,10 @@ def parse_time_value(value):
         hour = int(match.group(1))
         minute = int(match.group(2))
 
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
+        if (
+            0 <= hour <= 23
+            and 0 <= minute <= 59
+        ):
             return hour, minute
 
     return None
@@ -413,21 +512,30 @@ def parse_datetime(record):
         "time",
     )
 
-    date = parse_date_value(combined)
+    date = parse_date_value(
+        combined
+    )
 
     if date is None:
-        date = parse_date_value(date_value)
+        date = parse_date_value(
+            date_value
+        )
 
     if date is None:
         return None
 
-    parsed_time = parse_time_value(combined)
+    parsed_time = parse_time_value(
+        combined
+    )
 
     if parsed_time is None:
-        parsed_time = parse_time_value(time_value)
+        parsed_time = parse_time_value(
+            time_value
+        )
 
     if parsed_time is None:
         hour, minute = 10, 0
+
     else:
         hour, minute = parsed_time
 
@@ -499,18 +607,81 @@ def extract_team_name(value):
 
 def get_home_away(record):
     home = extract_team_name(
-        get_value(record, *HOME_KEYS)
+        get_value(
+            record,
+            *HOME_KEYS
+        )
     )
 
     away = extract_team_name(
-        get_value(record, *AWAY_KEYS)
+        get_value(
+            record,
+            *AWAY_KEYS
+        )
     )
 
     return home, away
 
 
 # ============================================================
-# IDS / URLS / SCORES
+# VENUE / LOCATION
+# ============================================================
+
+def extract_location(record):
+    """
+    Return a venue/location supplied by the source record.
+    Do not infer a ground from the home team's name.
+    """
+
+    value = get_value(
+        record,
+        "Location",
+        "Venue",
+        "VenueName",
+        "Ground",
+        "GroundName",
+        "MatchLocation",
+        "FixtureLocation",
+        "location",
+        "venue",
+    )
+
+    if isinstance(value, dict):
+        value = first_non_empty(
+            value,
+            [
+                "Name",
+                "name",
+                "VenueName",
+                "venueName",
+                "DisplayName",
+                "displayName",
+                "Address",
+                "address",
+            ]
+        )
+
+    if value is None:
+        return ""
+
+    location = clean_name(value)
+
+    # Avoid writing placeholder values into the calendar.
+    if location.lower() in {
+        "tbc",
+        "tba",
+        "unknown",
+        "n/a",
+        "na",
+        "-",
+    }:
+        return ""
+
+    return location
+
+
+# ============================================================
+# IDS / URLS
 # ============================================================
 
 def get_fixture_url(record):
@@ -526,7 +697,10 @@ def get_fixture_url(record):
         "link",
     )
 
-    if isinstance(value, str) and value.startswith("http"):
+    if (
+        isinstance(value, str)
+        and value.startswith("http")
+    ):
         return value
 
     fixture_id = get_value(
@@ -559,7 +733,15 @@ def find_fixture_url(text):
     return match.group(0) if match else ""
 
 
-def get_score(record):
+# ============================================================
+# SCORE
+# ============================================================
+
+def get_score(
+    record,
+    home,
+    away
+):
     home_score = get_value(
         record,
         "HomeScore",
@@ -578,8 +760,14 @@ def get_score(record):
         "AwayResult",
     )
 
-    if home_score not in (None, "") and away_score not in (None, ""):
-        return str(home_score), str(away_score)
+    if (
+        home_score not in (None, "")
+        and away_score not in (None, "")
+    ):
+        return (
+            str(home_score),
+            str(away_score)
+        )
 
     full_score = get_value(
         record,
@@ -597,7 +785,10 @@ def get_score(record):
         )
 
         if match:
-            return match.group(1), match.group(2)
+            return (
+                match.group(1),
+                match.group(2)
+            )
 
     return "", ""
 
@@ -609,10 +800,16 @@ def get_score(record):
 def parse_fixtures(data):
     records = get_record_list(data)
 
-    print(f"Raw fixture records found: {len(records)}")
+    print(
+        f"Raw fixture records found: "
+        f"{len(records)}"
+    )
 
     if records:
-        inspect_record(records[0], "FIRST FIXTURE RECORD")
+        inspect_record(
+            records[0],
+            "FIRST FIXTURE RECORD"
+        )
 
     fixtures = []
 
@@ -620,12 +817,17 @@ def parse_fixtures(data):
         if not isinstance(record, dict):
             continue
 
-        home, away = get_home_away(record)
+        home, away = get_home_away(
+            record
+        )
 
         if not home or not away:
             continue
 
-        if not is_flames(home) and not is_flames(away):
+        if (
+            not is_flames(home)
+            and not is_flames(away)
+        ):
             continue
 
         dt = parse_datetime(record)
@@ -646,6 +848,7 @@ def parse_fixtures(data):
             "home": home,
             "away": away,
             "url": get_fixture_url(record),
+            "location": extract_location(record),
             "competition": (
                 clean_name(competition)
                 if competition
@@ -657,19 +860,11 @@ def parse_fixtures(data):
 
 
 # ============================================================
-# FULL-TIME TEAM EXTRACTION
+# FULL-TIME FIXTURES PAGE
 # ============================================================
 
-def normalise_display_team_name(name):
-    name = clean_name(name)
-
-    if is_flames(name):
-        return TEAM_NAME
-
-    return name
-
-
 def extract_teams_from_fixture_line(line):
+    # First preference: Jina's image alt text.
     image_names = re.findall(
         r'!\[Image\s*\d*\s*:\s*([^\]]+)\]',
         line,
@@ -677,18 +872,19 @@ def extract_teams_from_fixture_line(line):
     )
 
     image_names = [
-        normalise_display_team_name(name)
-        for name in image_names
+        normalise_display_team_name(x)
+        for x in image_names
     ]
 
     image_names = [
-        name for name in image_names
-        if name
+        x for x in image_names
+        if x
     ]
 
     if len(image_names) >= 2:
         return image_names[0], image_names[1]
 
+    # Second preference: VS-separated text.
     match = re.search(
         r'\s+VS\s+',
         line,
@@ -707,21 +903,28 @@ def extract_teams_from_fixture_line(line):
     )
 
     if date_match:
-        left = left.replace(date_match.group(0), "")
+        left = left.replace(
+            date_match.group(0),
+            ""
+        )
 
+    # Remove table/image clutter.
     left = clean_name(left)
     right = clean_name(right)
 
+    # If pipes remain, the final meaningful item on the
+    # left is the home team and the first meaningful item
+    # on the right is the away team.
     left_parts = [
-        clean_name(part)
-        for part in left.split("|")
-        if clean_name(part)
+        clean_name(x)
+        for x in left.split("|")
+        if clean_name(x)
     ]
 
     right_parts = [
-        clean_name(part)
-        for part in right.split("|")
-        if clean_name(part)
+        clean_name(x)
+        for x in right.split("|")
+        if clean_name(x)
     ]
 
     if left_parts:
@@ -736,12 +939,22 @@ def extract_teams_from_fixture_line(line):
     )
 
 
-# ============================================================
-# FULL-TIME FIXTURES
-# ============================================================
+def normalise_display_team_name(name):
+    name = clean_name(name)
+
+    # Preserve the actual displayed team name whenever possible.
+    if is_flames(name):
+        return TEAM_NAME
+
+    return name
+
 
 def parse_fulltime_fixtures(text):
     fixtures = []
+
+    print()
+    print("Parsing Full-Time fixtures page...")
+
     lines = text.splitlines()
 
     date_pattern = re.compile(
@@ -750,7 +963,8 @@ def parse_fulltime_fixtures(text):
     )
 
     for line in lines:
-        if NORMALISED_TEAM_NAME not in normalise_team_name(line):
+        # We only care about lines which contain the Flames.
+        if TEAM_NAME.lower() not in line.lower():
             continue
 
         match = date_pattern.search(line)
@@ -758,28 +972,52 @@ def parse_fulltime_fixtures(text):
         if not match:
             continue
 
+        date_text = (
+            f"{match.group(1)} "
+            f"{match.group(2)}"
+        )
+
         try:
             dt = datetime.strptime(
-                f"{match.group(1)} {match.group(2)}",
+                date_text,
                 "%d/%m/%y %H:%M"
             )
+
         except ValueError:
             continue
 
+        # Ignore completed matches here.
+        # Scores come from the Results API.
         if dt.date() < datetime.now().date():
             continue
 
-        home, away = extract_teams_from_fixture_line(line)
+        home, away = extract_teams_from_fixture_line(
+            line
+        )
 
         if not home or not away:
             continue
 
-        if not is_flames(home) and not is_flames(away):
+        if (
+            not is_flames(home)
+            and not is_flames(away)
+        ):
             continue
 
-        home = TEAM_NAME if is_flames(home) else clean_name(home)
-        away = TEAM_NAME if is_flames(away) else clean_name(away)
+        home = (
+            TEAM_NAME
+            if is_flames(home)
+            else clean_name(home)
+        )
 
+        away = (
+            TEAM_NAME
+            if is_flames(away)
+            else clean_name(away)
+        )
+
+        # County Cup fixtures are marked "CC" and have
+        # "County Cups" in the competition information.
         competition = ""
 
         if (
@@ -795,143 +1033,37 @@ def parse_fulltime_fixtures(text):
             "home": home,
             "away": away,
             "url": find_fixture_url(line),
+            "location": "",
             "competition": competition,
         })
 
-    fixtures = dedupe(fixtures)
+    fixtures = dedupe(
+        fixtures
+    )
 
-    print(f"Full-Time fixtures found: {len(fixtures)}")
+    print(
+        "Full-Time fixtures found: "
+        f"{len(fixtures)}"
+    )
 
     return fixtures
 
 
 # ============================================================
-# FULL-TIME COMPLETED RESULTS
+# FULL-TIME FALLBACK
 # ============================================================
-
-def parse_fulltime_results(text):
-    """
-    Supplement the division Results API with completed matches from
-    the Full-Time competition page. This is intended to catch County
-    Cup results which may not be returned by the division API.
-    """
-
-    results = []
-    lines = text.splitlines()
-
-    date_pattern = re.compile(
-        r"\b(\d{2}/\d{2}/\d{2})\s+(\d{1,2}:\d{2})\b"
-    )
-
-    score_pattern = re.compile(
-        r"\b(\d{1,2})\s*[-–]\s*(\d{1,2})\b"
-    )
-
-    for index, line in enumerate(lines):
-        if NORMALISED_TEAM_NAME not in normalise_team_name(line):
-            continue
-
-        date_match = date_pattern.search(line)
-
-        if not date_match:
-            continue
-
-        try:
-            dt = datetime.strptime(
-                f"{date_match.group(1)} {date_match.group(2)}",
-                "%d/%m/%y %H:%M"
-            )
-        except ValueError:
-            continue
-
-        # Only completed matches are treated as results.
-        if dt.date() >= datetime.now().date():
-            continue
-
-        home, away = extract_teams_from_fixture_line(line)
-
-        if not home or not away:
-            continue
-
-        score_match = score_pattern.search(line)
-
-        # Some Full-Time text layouts place the score on the
-        # following line rather than the dated team row.
-        if score_match is None:
-            for next_index in range(
-                index + 1,
-                min(index + 4, len(lines))
-            ):
-                next_line = lines[next_index]
-
-                if date_pattern.search(next_line):
-                    break
-
-                score_match = score_pattern.search(next_line)
-
-                if score_match:
-                    break
-
-        if score_match is None:
-            continue
-
-        if is_flames(home):
-            home = TEAM_NAME
-
-        if is_flames(away):
-            away = TEAM_NAME
-
-        if not is_flames(home) and not is_flames(away):
-            continue
-
-        results.append({
-            "date": dt,
-            "home": home,
-            "away": away,
-            "home_score": score_match.group(1),
-            "away_score": score_match.group(2),
-            "url": find_fixture_url(line),
-        })
-
-    results = dedupe(results)
-
-    print(
-        "Completed results parsed from Full-Time page: "
-        f"{len(results)}"
-    )
-
-    for result in results:
-        print(
-            "FULL-TIME RESULT: "
-            f"{result['date'].strftime('%d/%m/%y %H:%M')} - "
-            f"{result['home']} "
-            f"{result['home_score']} - "
-            f"{result['away_score']} "
-            f"{result['away']}"
-        )
-
-    return results
-
-
-# ============================================================
-# FULL-TIME DOWNLOAD
-# ============================================================
-
-FULLTIME_PAGE_TEXT = ""
-
 
 def download_fulltime_fixtures():
     """
-    Try Jina first, then the original Full-Time HTML page.
-    Retain the successful page text so the results parser can
-    inspect completed matches as well as upcoming fixtures.
+    Try the Jina text mirror first, then the live Full-Time HTML.
+    If both are blocked, return an empty list and let the calendar
+    continue using the FA fixture/results APIs plus the known cup tie.
     """
-
-    global FULLTIME_PAGE_TEXT
 
     print()
     print("Downloading Full-Time fixtures page...")
 
+    # First choice: readable text from Jina.
     try:
         page_text = download_text(
             FULLTIME_FIXTURES_JINA_URL
@@ -943,12 +1075,12 @@ def download_fulltime_fixtures():
             or "one more step" in page_text.lower()
         ):
             raise RuntimeError(
-                "Jina returned a Cloudflare challenge."
+                "Jina returned a Cloudflare challenge, not fixture data."
             )
 
-        FULLTIME_PAGE_TEXT = page_text
-
-        fixtures = parse_fulltime_fixtures(page_text)
+        fixtures = parse_fulltime_fixtures(
+            page_text
+        )
 
         if fixtures:
             print(
@@ -957,13 +1089,21 @@ def download_fulltime_fixtures():
             )
             return fixtures
 
-        print("Jina returned a page, but no fixtures were parsed.")
+        print(
+            "Jina returned a page, but no fixtures were parsed."
+        )
 
     except Exception as error:
-        print(f"WARNING: Jina Full-Time request failed: {error}")
+        print(
+            "WARNING: Jina Full-Time request failed: "
+            f"{error}"
+        )
 
+    # Second choice: request the original HTML page directly.
     try:
-        html = download_text(FULLTIME_FIXTURES_URL)
+        html = download_text(
+            FULLTIME_FIXTURES_URL
+        )
 
         if (
             "just a moment" in html.lower()
@@ -974,12 +1114,17 @@ def download_fulltime_fixtures():
                 "Full-Time returned a Cloudflare challenge."
             )
 
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(
+            html,
+            "html.parser"
+        )
 
         lines = []
 
         for row in soup.find_all("tr"):
-            cells = row.find_all(["th", "td"])
+            cells = row.find_all(
+                ["th", "td"]
+            )
 
             if not cells:
                 continue
@@ -987,26 +1132,37 @@ def download_fulltime_fixtures():
             parts = []
 
             for cell in cells:
+                # Preserve team names held only in image alt text.
                 for image in cell.find_all("img"):
-                    alt = clean_name(image.get("alt", ""))
+                    alt = clean_name(
+                        image.get("alt", "")
+                    )
 
                     if alt:
-                        parts.append(f"![Image 1: {alt}]")
+                        parts.append(
+                            f"![Image 1: {alt}]"
+                        )
 
                 cell_text = clean_name(
-                    cell.get_text(" ", strip=True)
+                    cell.get_text(
+                        " ",
+                        strip=True
+                    )
                 )
 
                 if cell_text:
                     parts.append(cell_text)
 
             if parts:
-                lines.append(" | ".join(parts))
+                lines.append(
+                    " | ".join(parts)
+                )
 
         parsed_text = "\n".join(lines)
-        FULLTIME_PAGE_TEXT = parsed_text
 
-        fixtures = parse_fulltime_fixtures(parsed_text)
+        fixtures = parse_fulltime_fixtures(
+            parsed_text
+        )
 
         if fixtures:
             print(
@@ -1015,60 +1171,74 @@ def download_fulltime_fixtures():
             )
             return fixtures
 
-        print("Direct HTML loaded, but no fixtures were parsed.")
+        print(
+            "Direct HTML loaded, but no fixtures were parsed."
+        )
 
     except Exception as error:
-        print(f"WARNING: Direct Full-Time request failed: {error}")
+        print(
+            "WARNING: Direct Full-Time request failed: "
+            f"{error}"
+        )
 
     print(
-        "WARNING: Full-Time fixture page unavailable. "
+        "WARNING: Both Full-Time sources were unavailable. "
         "Continuing with API data and the known County Cup fixture."
     )
 
     return []
 
 
-# ============================================================
-# KNOWN COUNTY CUP FIXTURE FALLBACK
-# ============================================================
-
-def known_cup_fallback():
+def known_cup_results():
     """
-    Confirmed Bradford City County Cup fixture:
-    Bradford City AFC Womens U15 Girls v Pannal Ash U14 Girls Flames,
+    Manually confirmed County Cup result from the FA Full-Time
+    Full Results Table screenshot supplied by the user:
+
+    Bradford City AFC Womens U15 Girls 17 - 0
+    Pannal Ash JFC U14 Girls Flames
     7 November 2026 at 10:00.
 
-    Keep this only while the fixture is in the future.
+    Keep this as a completed result because the Full-Time parser
+    has not extracted the match reliably.
     """
 
-    match_date = datetime(2026, 11, 7, 10, 0)
-
-    if match_date.date() < datetime.now().date():
-        return []
-
     return [{
-        "date": match_date,
+        "date": datetime(
+            2026,
+            11,
+            7,
+            10,
+            0
+        ),
         "home": "Bradford City AFC Womens U15 Girls",
         "away": TEAM_NAME,
+        "home_score": "17",
+        "away_score": "0",
         "url": (
             "https://fulltime.thefa.com/"
             "displayTeam.html?id=101016902"
         ),
-        "competition": "County Cups",
+        "location": "",
     }]
 
 
 # ============================================================
-# API RESULTS
+# RESULTS
 # ============================================================
 
 def parse_results(data):
     records = get_record_list(data)
 
-    print(f"Raw result records found: {len(records)}")
+    print(
+        f"Raw result records found: "
+        f"{len(records)}"
+    )
 
     if records:
-        inspect_record(records[0], "FIRST RESULT RECORD")
+        inspect_record(
+            records[0],
+            "FIRST RESULT RECORD"
+        )
 
     results = []
 
@@ -1076,12 +1246,17 @@ def parse_results(data):
         if not isinstance(record, dict):
             continue
 
-        home, away = get_home_away(record)
+        home, away = get_home_away(
+            record
+        )
 
         if not home or not away:
             continue
 
-        if not is_flames(home) and not is_flames(away):
+        if (
+            not is_flames(home)
+            and not is_flames(away)
+        ):
             continue
 
         dt = parse_datetime(record)
@@ -1089,7 +1264,11 @@ def parse_results(data):
         if not dt:
             continue
 
-        home_score, away_score = get_score(record)
+        home_score, away_score = get_score(
+            record,
+            home,
+            away
+        )
 
         results.append({
             "date": dt,
@@ -1098,6 +1277,7 @@ def parse_results(data):
             "home_score": home_score,
             "away_score": away_score,
             "url": get_fixture_url(record),
+            "location": extract_location(record),
         })
 
     return results
@@ -1110,8 +1290,12 @@ def parse_results(data):
 def fixture_key(item):
     return (
         item["date"].date(),
-        normalise_team_name(item["home"]),
-        normalise_team_name(item["away"]),
+        normalise_team_name(
+            item["home"]
+        ),
+        normalise_team_name(
+            item["away"]
+        ),
     )
 
 
@@ -1148,13 +1332,17 @@ def escape_ics(value):
 
 
 def utc_timestamp():
-    return datetime.now(timezone.utc).strftime(
+    return datetime.now(
+        timezone.utc
+    ).strftime(
         "%Y%m%dT%H%M%SZ"
     )
 
 
 def local_ics_datetime(dt):
-    return dt.strftime("%Y%m%dT%H%M%S")
+    return dt.strftime(
+        "%Y%m%dT%H%M%S"
+    )
 
 
 def create_uid(item):
@@ -1166,7 +1354,10 @@ def create_uid(item):
     )
 
 
-def build_ics(results, fixtures):
+def build_ics(
+    results,
+    fixtures
+):
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -1178,27 +1369,45 @@ def build_ics(results, fixtures):
         "X-WR-TIMEZONE:Europe/London",
     ]
 
+    # --------------------------------------------------------
     # RESULTS
+    # --------------------------------------------------------
 
     for item in results:
         start = item["date"]
-        end = start + timedelta(minutes=90)
 
-        if item["home_score"] and item["away_score"]:
+        end = (
+            start
+            + timedelta(minutes=90)
+        )
+
+        if (
+            item["home_score"]
+            and item["away_score"]
+        ):
             summary = (
                 f"{item['home']} "
                 f"{item['home_score']} - "
                 f"{item['away_score']} "
                 f"{item['away']}"
             )
-        else:
-            summary = f"{item['home']} v {item['away']}"
 
-        location = (
-            item["home"]
-            if is_flames(item["away"])
-            else item["away"]
-        )
+        else:
+            summary = (
+                f"{item['home']} v "
+                f"{item['away']}"
+            )
+
+        # Prefer the venue provided by the API. If unavailable,
+        # preserve the previous opponent-name fallback for results.
+        location = item.get("location", "").strip()
+
+        if not location:
+            location = (
+                item["home"]
+                if is_flames(item["away"])
+                else item["away"]
+            )
 
         lines.extend([
             "BEGIN:VEVENT",
@@ -1218,22 +1427,46 @@ def build_ics(results, fixtures):
         ])
 
         if item.get("url"):
-            lines.append(f"URL:{item['url']}")
+            lines.append(
+                f"URL:{item['url']}"
+            )
 
-        lines.append("END:VEVENT")
+        lines.append(
+            "END:VEVENT"
+        )
 
+    # --------------------------------------------------------
     # FUTURE FIXTURES
+    # --------------------------------------------------------
 
     for item in fixtures:
         start = item["date"]
-        end = start + timedelta(minutes=90)
 
-        summary = f"{item['home']} v {item['away']}"
+        end = (
+            start
+            + timedelta(minutes=90)
+        )
 
-        competition = item.get("competition", "")
+        summary = (
+            f"{item['home']} v "
+            f"{item['away']}"
+        )
 
-        if competition and "County Cups" in competition:
-            summary = f"CUP: {summary}"
+        competition = item.get(
+            "competition",
+            ""
+        )
+
+        if (
+            competition
+            and "County Cups"
+            in competition
+        ):
+            summary = (
+                f"CUP: "
+                f"{item['home']} v "
+                f"{item['away']}"
+            )
 
         lines.extend([
             "BEGIN:VEVENT",
@@ -1248,15 +1481,33 @@ def build_ics(results, fixtures):
                 f"{local_ics_datetime(end)}"
             ),
             f"SUMMARY:{escape_ics(summary)}",
-            "STATUS:CONFIRMED",
         ])
 
+        # Only add a future-fixture location when the source
+        # provides one; don't guess from the home team.
+        location = item.get("location", "").strip()
+
+        if location:
+            lines.append(
+                f"LOCATION:{escape_ics(location)}"
+            )
+
+        lines.append(
+            "STATUS:CONFIRMED"
+        )
+
         if item.get("url"):
-            lines.append(f"URL:{item['url']}")
+            lines.append(
+                f"URL:{item['url']}"
+            )
 
-        lines.append("END:VEVENT")
+        lines.append(
+            "END:VEVENT"
+        )
 
-    lines.append("END:VCALENDAR")
+    lines.append(
+        "END:VCALENDAR"
+    )
 
     return "\n".join(lines) + "\n"
 
@@ -1266,74 +1517,117 @@ def build_ics(results, fixtures):
 # ============================================================
 
 def main():
-    print("==============================================")
-    print("PANNAL ASH U14 GIRLS FLAMES CALENDAR")
-    print("==============================================")
+    print(
+        "=============================================="
+    )
+
+    print(
+        "PANNAL ASH U14 GIRLS FLAMES CALENDAR"
+    )
+
+    print(
+        "=============================================="
+    )
+
+    # --------------------------------------------------------
+    # API FIXTURES
+    # --------------------------------------------------------
 
     print()
     print("Downloading fixtures...")
 
-    fixture_data = download_json(FIXTURES_URL)
+    fixture_data = download_json(
+        FIXTURES_URL
+    )
+
+    # --------------------------------------------------------
+    # API RESULTS
+    # --------------------------------------------------------
 
     print()
     print("Downloading results...")
 
-    result_data = download_json(RESULTS_URL)
+    result_data = download_json(
+        RESULTS_URL
+    )
 
-    print()
-    print("Downloading Full-Time fixtures and results...")
+    # --------------------------------------------------------
+    # FULL-TIME FIXTURES PAGE
+    # --------------------------------------------------------
 
     fulltime_fixtures = download_fulltime_fixtures()
 
-    print()
-    print("Parsing API fixtures...")
-
-    fixtures = parse_fixtures(fixture_data)
-
-    print()
-    print("Parsing API results...")
-
-    results = parse_results(result_data)
+    # --------------------------------------------------------
+    # PARSE API FIXTURES
+    # --------------------------------------------------------
 
     print()
-    print("Parsing completed matches from Full-Time...")
+    print("Parsing fixtures...")
 
-    fulltime_results = []
+    fixtures = parse_fixtures(
+        fixture_data
+    )
 
-    if FULLTIME_PAGE_TEXT:
-        fulltime_results = parse_fulltime_results(
-            FULLTIME_PAGE_TEXT
+    # --------------------------------------------------------
+    # PARSE API RESULTS
+    # --------------------------------------------------------
+
+    print()
+    print("Parsing results...")
+
+    results = parse_results(
+        result_data
+    )
+
+    # --------------------------------------------------------
+    # ADD THE CONFIRMED COUNTY CUP RESULT
+    # --------------------------------------------------------
+
+    # The Bradford City tie has now been played. Add the manually
+    # confirmed score because the Full-Time parser has not extracted
+    # it reliably. If an API record for the same match exists, replace
+    # it with this confirmed result so a blank or incorrect score cannot
+    # take precedence during deduplication.
+
+    results = dedupe(
+        results
+    )
+
+    for known_result in known_cup_results():
+        known_key = fixture_key(known_result)
+
+        results = [
+            result
+            for result in results
+            if fixture_key(result) != known_key
+        ]
+
+        results.append(
+            known_result
         )
-    else:
-        print(
-            "No Full-Time page text available for "
-            "completed-result parsing."
-        )
 
-    # Keep API results first. If both sources contain the same match,
-    # the API record is preferred.
-    results = dedupe(results + fulltime_results)
+    # --------------------------------------------------------
+    # MERGE FIXTURE SOURCES
+    #
+    # The API supplies the normal league fixtures.
+    #
+    # The Full-Time fixtures page supplies additional fixtures,
+    # especially County Cup fixtures.
+    # --------------------------------------------------------
 
-    print()
-    print("Combined results: " + str(len(results)))
+    fixtures = (
+        fixtures
+        + fulltime_fixtures
+    )
 
-    # Preserve the confirmed County Cup fixture if the live page
-    # has not supplied a County Cup fixture.
-    live_cup_fixtures = [
-        fixture
-        for fixture in fulltime_fixtures
-        if (
-            fixture.get("competition")
-            and "County Cups" in fixture.get("competition", "")
-        )
-    ]
+    fixtures = dedupe(
+        fixtures
+    )
 
-    if not live_cup_fixtures:
-        fulltime_fixtures.extend(known_cup_fallback())
+    # --------------------------------------------------------
+    # REMOVE FUTURE FIXTURES WHICH ARE ALREADY RESULTS
+    # --------------------------------------------------------
 
-    fixtures = dedupe(fixtures + fulltime_fixtures)
-
-    # Remove fixtures which have already become results.
     result_keys = {
         fixture_key(result)
         for result in results
@@ -1342,18 +1636,40 @@ def main():
     fixtures = [
         fixture
         for fixture in fixtures
-        if fixture_key(fixture) not in result_keys
+        if fixture_key(fixture)
+        not in result_keys
     ]
 
-    fixtures = dedupe(fixtures)
-    results = dedupe(results)
+    fixtures = dedupe(
+        fixtures
+    )
 
-    fixtures.sort(key=lambda item: item["date"])
-    results.sort(key=lambda item: item["date"])
+    results = dedupe(
+        results
+    )
+
+    fixtures.sort(
+        key=lambda x: x["date"]
+    )
+
+    results.sort(
+        key=lambda x: x["date"]
+    )
+
+    # --------------------------------------------------------
+    # OUTPUT
+    # --------------------------------------------------------
 
     print()
-    print(f"FLAMES RESULTS FOUND: {len(results)}")
-    print(f"FLAMES FUTURE FIXTURES FOUND: {len(fixtures)}")
+    print(
+        f"FLAMES RESULTS FOUND: "
+        f"{len(results)}"
+    )
+
+    print(
+        f"FLAMES FUTURE FIXTURES FOUND: "
+        f"{len(fixtures)}"
+    )
 
     print()
 
@@ -1374,7 +1690,8 @@ def main():
 
         if (
             fixture.get("competition")
-            and "County Cups" in fixture["competition"]
+            and "County Cups"
+            in fixture["competition"]
         ):
             label = "CUP FIXTURE"
 
@@ -1393,7 +1710,10 @@ def main():
         exist_ok=True
     )
 
-    ics = build_ics(results, fixtures)
+    ics = build_ics(
+        results,
+        fixtures
+    )
 
     OUTPUT.write_text(
         ics,
@@ -1401,8 +1721,15 @@ def main():
     )
 
     print()
-    print(f"Calendar written to: {OUTPUT}")
-    print(f"Calendar events: {len(results) + len(fixtures)}")
+    print(
+        f"Calendar written to: {OUTPUT}"
+    )
+
+    print(
+        "Calendar events: "
+        f"{len(results) + len(fixtures)}"
+    )
+
     print()
     print("DONE")
 
